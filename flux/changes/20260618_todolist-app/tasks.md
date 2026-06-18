@@ -13,7 +13,7 @@ After all tasks are completed, the following test skills will be automatically a
 **Input**: Design documents from `flux/changes/20260618_todolist-app/`
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/
 
-**⚠️ NO UNIT TESTS**: Do NOT generate any unit test, mock, or test-related tasks. Unit test generation is handled exclusively by the implement phase (skill `flux-implement`). This applies to all phases including Polish & Cross-Cutting Concerns.
+**⚠️ NO UNIT TESTS**: Do NOT generate any unit test, mock, or test-related implementation tasks. Creating the `tests/` directory structure as a placeholder is allowed, but no test files, mocks, or test logic should be implemented. Unit test generation is handled exclusively by the post-implement automated test phase (skill `bits-unit-test-gen`). This applies to all phases including Polish & Cross-Cutting Concerns.
 
 **Organization**: Tasks are grouped by user story to enable independent implementation of each story.
 
