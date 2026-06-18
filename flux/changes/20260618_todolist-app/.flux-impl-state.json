@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "current_stage": 2,
+  "initialized_at": "2026-06-18T03:51:24Z",
+  "stages": [
+    { "id": 0, "name": "Pre-Checks", "status": "completed", "started_at": "2026-06-18T03:51:24Z" "completed_at": "2026-06-18T03:52:58Z" },
+    { "id": 1, "name": "Context Loading", "status": "completed" "started_at": "2026-06-18T03:52:58Z" "completed_at": "2026-06-18T03:53:49Z" },
+    { "id": 2, "name": "Implementation", "status": "in_progress" "started_at": "2026-06-18T03:53:49Z" },
+    { "id": 3, "name": "Validation & Build", "status": "pending" },
+    { "id": 4, "name": "Post-Implementation Verification", "status": "pending" },
+    { "id": 5, "name": "Wrap-up", "status": "pending" }
+  ],
+  "skill_path": "/root/.flux/plugins/flux/core/skills/flux-implement/SKILL.md",
+  "feature_dir": "/ws/.flux/worker/77278839717253959/repos/devinfra/boe_inspiration_wiki_wangpengjun_187/flux/changes/20260618_todolist-app"
+}
