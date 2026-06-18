@@ -36,12 +36,27 @@ endif()
 # Find libgit2 - try config first, then pkg-config fallback
 find_package(PkgConfig QUIET)
 find_package(libgit2 1.7 CONFIG QUIET)
-if(NOT libgit2_FOUND)
+if(libgit2_FOUND)
+    if(TARGET libgit2::libgit2)
+        set(TODOLIST_LIBGIT2_TARGET libgit2::libgit2)
+    elseif(TARGET libgit2::libgit2package)
+        set(TODOLIST_LIBGIT2_TARGET libgit2::libgit2package)
+    endif()
+endif()
+
+if(NOT TODOLIST_LIBGIT2_TARGET)
     if(PkgConfig_FOUND)
         pkg_check_modules(LIBGIT2 REQUIRED IMPORTED_TARGET libgit2>=1.7)
-        add_library(libgit2::libgit2 ALIAS PkgConfig::LIBGIT2)
+        set(TODOLIST_LIBGIT2_TARGET PkgConfig::LIBGIT2)
     else()
         find_package(libgit2 1.7 REQUIRED)
+        if(TARGET libgit2::libgit2)
+            set(TODOLIST_LIBGIT2_TARGET libgit2::libgit2)
+        elseif(TARGET libgit2::libgit2package)
+            set(TODOLIST_LIBGIT2_TARGET libgit2::libgit2package)
+        else()
+            message(FATAL_ERROR "libgit2 was found, but no known CMake target was exported")
+        endif()
     endif()
 endif()
 
@@ -83,11 +98,13 @@ set(SOURCES
 file(GLOB_RECURSE MODEL_SOURCES "src/models/*.cpp")
 file(GLOB_RECURSE BUSINESS_SOURCES "src/business/*.cpp")
 file(GLOB_RECURSE DATA_SOURCES "src/data/*.cpp")
+file(GLOB_RECURSE HEADER_SOURCES "src/*.h")
 
 list(APPEND SOURCES
     ${MODEL_SOURCES}
     ${BUSINESS_SOURCES}
     ${DATA_SOURCES}
+    ${HEADER_SOURCES}
 )
 
 # Create executable
@@ -108,8 +125,8 @@ target_link_libraries(Todolist PRIVATE
     Qt6::Network
     Qt6::Widgets
     nlohmann_json::nlohmann_json
-    libgit2::libgit2
-    qaesencryption
+    ${TODOLIST_LIBGIT2_TARGET}
+    QtAES
 )
 
 # Platform-specific linking
@@ -161,5 +178,7 @@ endif()
 
 include(CPack)
 
-# Add tests subdirectory
-add_subdirectory(tests)
+# Add tests subdirectory when present
+if(EXISTS "${CMAKE_SOURCE_DIR}/tests/CMakeLists.txt")
+    add_subdirectory(tests)
+endif()

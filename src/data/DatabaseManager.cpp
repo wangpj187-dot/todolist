@@ -10,7 +10,6 @@
 
 static const QString CONNECTION_NAME = "todolist_connection";
 static const QString DATABASE_FILENAME = "todolist.db";
-static const QString CONNECTION_OPTIONS = "QSQLITE_ENABLE_FK=ON;QSQLITE_JOURNAL_MODE=WAL";
 
 DatabaseManager::DatabaseManager(QObject* parent)
     : QObject(parent)
@@ -109,9 +108,11 @@ bool DatabaseManager::isInitialized() const
 void DatabaseManager::close()
 {
     if (m_initialized) {
-        QSqlDatabase db = database();
-        if (db.isOpen()) {
-            db.close();
+        {
+            QSqlDatabase db = database();
+            if (db.isOpen()) {
+                db.close();
+            }
         }
         QSqlDatabase::removeDatabase(m_connectionName);
         m_initialized = false;
@@ -136,7 +137,6 @@ bool DatabaseManager::openDatabase()
     } else {
         db = QSqlDatabase::addDatabase("QSQLITE", m_connectionName);
         db.setDatabaseName(m_databasePath);
-        db.setConnectOptions(CONNECTION_OPTIONS);
     }
 
     if (!db.open()) {

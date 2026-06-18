@@ -9,6 +9,7 @@ class IGitClient : public QObject {
     Q_OBJECT
     
 public:
+    explicit IGitClient(QObject* parent = nullptr) : QObject(parent) {}
     virtual ~IGitClient() = default;
     
     struct GitStatus {

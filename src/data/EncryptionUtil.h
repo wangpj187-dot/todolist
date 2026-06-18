@@ -3,7 +3,7 @@
 #include <QByteArray>
 #include <QString>
 #include <QtGlobal>
-#include <QAESEncryption>
+#include <qaesencryption.h>
 #include <QCryptographicHash>
 #include <QMessageAuthenticationCode>
 #include <QRandomGenerator>
@@ -22,8 +22,8 @@
 class EncryptionUtil
 {
 public:
-    // Encrypt plaintext using AES-256-GCM
-    // Returns: encrypted data format = [salt(16 bytes)][iv(12 bytes)][tag(16 bytes)][ciphertext]
+    // Encrypt plaintext using AES-256-CTR with HMAC-SHA256 authentication.
+    // Returns: encrypted data format = [salt(16 bytes)][iv(16 bytes)][tag(32 bytes)][ciphertext]
     static QByteArray encrypt(const QString& plaintext, const QString& keyContext = "github_token");
 
     // Decrypt data encrypted by encrypt()

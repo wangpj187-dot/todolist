@@ -6,6 +6,7 @@
 #include <QDateTime>
 #include <QString>
 #include <Qt>
+#include <QVariant>
 
 #include "interfaces/ITodoService.h"
 #include "../data/DatabaseManager.h"
@@ -29,63 +30,77 @@ public:
     ~TodoService() override;
 
     // Todo CRUD
-    QUuid createTodo(const QString& title,
-                     const QString& description,
-                     Todo::Priority priority,
-                     const QUuid& categoryId,
-                     const QDateTime& dueDate) override;
+    Q_INVOKABLE QUuid createTodo(const QString& title,
+                                 const QString& description,
+                                 Todo::Priority priority,
+                                 const QUuid& categoryId,
+                                 const QDateTime& dueDate) override;
 
-    QUuid createTodoWithId(const QUuid& id,
-                           const QString& title,
-                           const QString& description,
-                           Todo::Priority priority,
-                           const QUuid& categoryId,
-                           const QDateTime& dueDate,
-                           Todo::TodoStatus status,
-                           const QString& syncHash,
-                           const QDateTime& createdAt,
-                           const QDateTime& updatedAt,
-                           const QDateTime& completedAt) override;
+    Q_INVOKABLE QUuid createTodoWithId(const QUuid& id,
+                                       const QString& title,
+                                       const QString& description,
+                                       Todo::Priority priority,
+                                       const QUuid& categoryId,
+                                       const QDateTime& dueDate,
+                                       Todo::TodoStatus status,
+                                       const QString& syncHash,
+                                       const QDateTime& createdAt,
+                                       const QDateTime& updatedAt,
+                                       const QDateTime& completedAt) override;
 
-    bool updateTodo(const QUuid& todoId,
-                    const QString& title,
-                    const QString& description,
-                    Todo::Priority priority,
-                    const QUuid& categoryId,
-                    const QDateTime& dueDate,
-                    Todo::TodoStatus status) override;
+    Q_INVOKABLE bool updateTodo(const QUuid& todoId,
+                                const QString& title,
+                                const QString& description,
+                                Todo::Priority priority,
+                                const QUuid& categoryId,
+                                const QDateTime& dueDate,
+                                Todo::TodoStatus status) override;
 
-    bool deleteTodo(const QUuid& todoId) override;
+    Q_INVOKABLE QUuid createTodoFromQml(const QString& title,
+                                        const QString& description,
+                                        int priority,
+                                        const QVariant& categoryId,
+                                        const QVariant& dueDate);
+
+    Q_INVOKABLE bool updateTodoFromQml(const QVariant& todoId,
+                                       const QString& title,
+                                       const QString& description,
+                                       int priority,
+                                       const QVariant& categoryId,
+                                       const QVariant& dueDate,
+                                       int status);
+
+    Q_INVOKABLE bool deleteTodo(const QUuid& todoId) override;
     Todo* getTodo(const QUuid& todoId) const override;
     QList<Todo*> getAllTodos() const override;
 
     // Todo operations
-    bool completeTodo(const QUuid& todoId) override;
-    bool uncompleteTodo(const QUuid& todoId) override;
-    bool cancelTodo(const QUuid& todoId) override;
+    Q_INVOKABLE bool completeTodo(const QUuid& todoId) override;
+    Q_INVOKABLE bool uncompleteTodo(const QUuid& todoId) override;
+    Q_INVOKABLE bool cancelTodo(const QUuid& todoId) override;
 
     // Category CRUD
-    QUuid createCategory(const QString& name,
-                         const QString& color,
-                         const QString& icon) override;
+    Q_INVOKABLE QUuid createCategory(const QString& name,
+                                     const QString& color,
+                                     const QString& icon) override;
 
-    QUuid createCategoryWithId(const QUuid& id,
-                               const QString& name,
-                               const QString& color,
-                               const QString& icon) override;
+    Q_INVOKABLE QUuid createCategoryWithId(const QUuid& id,
+                                           const QString& name,
+                                           const QString& color,
+                                           const QString& icon) override;
 
-    bool updateCategory(const QUuid& categoryId,
-                        const QString& name,
-                        const QString& color,
-                        const QString& icon) override;
+    Q_INVOKABLE bool updateCategory(const QUuid& categoryId,
+                                    const QString& name,
+                                    const QString& color,
+                                    const QString& icon) override;
 
-    bool deleteCategory(const QUuid& categoryId) override;
+    Q_INVOKABLE bool deleteCategory(const QUuid& categoryId) override;
     Category* getCategory(const QUuid& categoryId) const override;
     QList<Category*> getAllCategories() const override;
 
     // Tag operations
-    bool addTagToTodo(const QUuid& todoId, const QString& tag) override;
-    bool removeTagFromTodo(const QUuid& todoId, const QString& tag) override;
+    Q_INVOKABLE bool addTagToTodo(const QUuid& todoId, const QString& tag) override;
+    Q_INVOKABLE bool removeTagFromTodo(const QUuid& todoId, const QString& tag) override;
     QStringList getAllTags() const override;
 
     // Filtering and sorting
@@ -101,7 +116,7 @@ public:
     // Get high-priority and overdue todos for widget view
     Q_INVOKABLE QList<Todo*> getHighPriorityTodos() const;
 
-    void refresh() override;
+    Q_INVOKABLE void refresh() override;
 
     // Property getters
     int filterStatus() const;

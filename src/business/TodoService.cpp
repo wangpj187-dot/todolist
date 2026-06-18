@@ -5,6 +5,49 @@
 #include <QDebug>
 #include <algorithm>
 
+namespace {
+
+QUuid uuidFromVariant(const QVariant& value)
+{
+    if (!value.isValid() || value.isNull()) {
+        return QUuid();
+    }
+
+    if (value.canConvert<QUuid>()) {
+        const QUuid uuid = value.value<QUuid>();
+        if (!uuid.isNull()) {
+            return uuid;
+        }
+    }
+
+    const QString text = value.toString().trimmed();
+    return text.isEmpty() ? QUuid() : QUuid(text);
+}
+
+QDateTime dateTimeFromVariant(const QVariant& value)
+{
+    if (!value.isValid() || value.isNull()) {
+        return QDateTime();
+    }
+
+    if (value.canConvert<QDateTime>()) {
+        return value.toDateTime();
+    }
+
+    const QString text = value.toString().trimmed();
+    if (text.isEmpty()) {
+        return QDateTime();
+    }
+
+    QDateTime dateTime = QDateTime::fromString(text, Qt::ISODate);
+    if (!dateTime.isValid()) {
+        dateTime = QDateTime::fromString(text, QStringLiteral("yyyy-MM-dd HH:mm"));
+    }
+    return dateTime;
+}
+
+}
+
 TodoService::TodoService(DatabaseManager* db, QObject* parent)
     : ITodoService()
     , m_db(db)
@@ -173,6 +216,36 @@ bool TodoService::updateTodo(const QUuid& todoId,
     emit dataChanged();
 
     return true;
+}
+
+QUuid TodoService::createTodoFromQml(const QString& title,
+                                     const QString& description,
+                                     int priority,
+                                     const QVariant& categoryId,
+                                     const QVariant& dueDate)
+{
+    return createTodo(title,
+                      description,
+                      static_cast<Todo::Priority>(priority),
+                      uuidFromVariant(categoryId),
+                      dateTimeFromVariant(dueDate));
+}
+
+bool TodoService::updateTodoFromQml(const QVariant& todoId,
+                                    const QString& title,
+                                    const QString& description,
+                                    int priority,
+                                    const QVariant& categoryId,
+                                    const QVariant& dueDate,
+                                    int status)
+{
+    return updateTodo(uuidFromVariant(todoId),
+                      title,
+                      description,
+                      static_cast<Todo::Priority>(priority),
+                      uuidFromVariant(categoryId),
+                      dateTimeFromVariant(dueDate),
+                      static_cast<Todo::TodoStatus>(status));
 }
 
 bool TodoService::deleteTodo(const QUuid& todoId)

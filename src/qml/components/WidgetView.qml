@@ -205,29 +205,26 @@ ColumnLayout {
                 onClicked: widgetCheckBox.checked = !widgetCheckBox.checked
             }
         }
-    }
 
-    // -------------------------------------------------------------------------
-    // Empty state
-    // -------------------------------------------------------------------------
+        // Empty state
+        Column {
+            id: widgetEmptyState
+            visible: highPriorityList.count === 0
+            anchors.centerIn: parent
+            spacing: 4
 
-    Column {
-        id: widgetEmptyState
-        visible: highPriorityList.count === 0
-        anchors.centerIn: parent
-        spacing: 4
+            Text {
+                text: "🎉"
+                font.pixelSize: 24
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
 
-        Text {
-            text: "🎉"
-            font.pixelSize: 24
-            anchors.horizontalCenter: parent.horizontalCenter
-        }
-
-        Text {
-            text: "没有紧急待办"
-            font.pixelSize: 12
-            color: "#9CA3AF"
-            anchors.horizontalCenter: parent.horizontalCenter
+            Text {
+                text: "没有紧急待办"
+                font.pixelSize: 12
+                color: "#9CA3AF"
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
         }
     }
 }

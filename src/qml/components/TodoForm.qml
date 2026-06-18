@@ -65,8 +65,7 @@ Dialog {
         // Set due date
         if (editDueDate && editDueDate instanceof Date && !isNaN(editDueDate.getTime())) {
             hasDueDate.checked = true
-            datePicker.date = editDueDate
-            timePicker.time = editDueDate
+            setDueDateValue(editDueDate)
         } else {
             hasDueDate.checked = false
         }
@@ -80,8 +79,7 @@ Dialog {
         priorityCombo.currentIndex = Todo.Medium - 1
         categoryCombo.currentIndex = -1
         hasDueDate.checked = false
-        datePicker.date = new Date()
-        timePicker.time = new Date()
+        setDueDateValue(new Date())
         titleField.focus = true
 
         editTodoId = ""
@@ -107,21 +105,57 @@ Dialog {
 
         if (hasDueDate.checked) {
             // Combine date and time
-            const date = datePicker.date
-            const time = timePicker.time
+            const date = parseDateInput(dueDateField.text)
+            if (!date) {
+                dueDateField.forceActiveFocus()
+                return
+            }
             dueDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(),
-                              time.getHours(), time.getMinutes(), 0)
+                              dueHourSpin.value, dueMinuteSpin.value, 0)
         }
 
         if (isEdit) {
-            todoService.updateTodo(editTodoId, title, description, priority, categoryId, dueDate, editStatus)
+            todoService.updateTodoFromQml(editTodoId, title, description, priority, categoryId, dueDate, editStatus)
             saved(editTodoId)
         } else {
-            const newId = todoService.createTodo(title, description, priority, categoryId, dueDate)
+            const newId = todoService.createTodoFromQml(title, description, priority, categoryId, dueDate)
             saved(newId)
         }
 
         root.close()
+    }
+
+    function pad2(value) {
+        return ("0" + value).slice(-2)
+    }
+
+    function formatDateInput(date) {
+        return date.getFullYear() + "-" + pad2(date.getMonth() + 1) + "-" + pad2(date.getDate())
+    }
+
+    function parseDateInput(text) {
+        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text.trim())
+        if (!match) {
+            return null
+        }
+
+        const year = Number(match[1])
+        const month = Number(match[2])
+        const day = Number(match[3])
+        const date = new Date(year, month - 1, day)
+
+        if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+            return null
+        }
+
+        return date
+    }
+
+    function setDueDateValue(value) {
+        const date = value instanceof Date && !isNaN(value.getTime()) ? value : new Date()
+        dueDateField.text = formatDateInput(date)
+        dueHourSpin.value = date.getHours()
+        dueMinuteSpin.value = date.getMinutes()
     }
 
     // -------------------------------------------------------------------------
@@ -183,7 +217,6 @@ Dialog {
                     border.width: 1
                 }
                 padding: 10
-                scrollIndicatorVisible: true
             }
         }
 
@@ -354,11 +387,12 @@ Dialog {
                         color: "#374151"
                     }
 
-                    DatePicker {
-                        id: datePicker
+                    TextField {
+                        id: dueDateField
                         Layout.fillWidth: true
-                        date: new Date()
-                        locale: Qt.locale("zh_CN")
+                        placeholderText: "yyyy-MM-dd"
+                        inputMethodHints: Qt.ImhDate
+                        font.pixelSize: 14
                         background: Rectangle {
                             color: "#FFFFFF"
                             radius: 6
@@ -380,18 +414,50 @@ Dialog {
                         color: "#374151"
                     }
 
-                    TimePicker {
-                        id: timePicker
+                    RowLayout {
                         Layout.fillWidth: true
-                        time: new Date()
-                        locale: Qt.locale("zh_CN")
-                        background: Rectangle {
-                            color: "#FFFFFF"
-                            radius: 6
-                            border.color: "#E5E7EB"
-                            border.width: 1
+                        spacing: 8
+
+                        SpinBox {
+                            id: dueHourSpin
+                            Layout.fillWidth: true
+                            from: 0
+                            to: 23
+                            editable: true
+                            font.pixelSize: 14
+                            textFromValue: function(value) { return root.pad2(value) }
+                            valueFromText: function(text) { return Number(text) }
+                            background: Rectangle {
+                                color: "#FFFFFF"
+                                radius: 6
+                                border.color: "#E5E7EB"
+                                border.width: 1
+                            }
                         }
-                        padding: 8
+
+                        Text {
+                            text: ":"
+                            color: "#6B7280"
+                            font.pixelSize: 16
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        SpinBox {
+                            id: dueMinuteSpin
+                            Layout.fillWidth: true
+                            from: 0
+                            to: 59
+                            editable: true
+                            font.pixelSize: 14
+                            textFromValue: function(value) { return root.pad2(value) }
+                            valueFromText: function(text) { return Number(text) }
+                            background: Rectangle {
+                                color: "#FFFFFF"
+                                radius: 6
+                                border.color: "#E5E7EB"
+                                border.width: 1
+                            }
+                        }
                     }
                 }
             }

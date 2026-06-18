@@ -8,6 +8,7 @@
 #include <QVariant>
 #include <QVariantList>
 #include <QVariantMap>
+#include <QtPlugin>
 
 #include "../../models/Todo.h"
 #include "../../models/Category.h"
@@ -68,3 +69,5 @@ public:
     virtual QVariantMap getCategoryStats() const = 0;
     virtual QVariantList getDailyCompletionTrend(int days = 7) const = 0;
 };
+
+Q_DECLARE_INTERFACE(IDatabaseManager, "com.todolist.IDatabaseManager/1.0")

@@ -19,7 +19,7 @@ ApplicationWindow {
     opacity: configService.windowOpacity
 
     // Apply alwaysOnTop from config
-    flags: configService.alwaysOnTop ? (root.flags | Qt.WindowStaysOnTopHint) : root.flags
+    flags: configService.alwaysOnTop ? (Qt.Window | Qt.WindowStaysOnTopHint) : Qt.Window
 
     // -------------------------------------------------------------------------
     // Window position/size persistence
@@ -252,30 +252,28 @@ ApplicationWindow {
             ScrollBar.vertical: ScrollBar {
                 policy: ScrollBar.AsNeeded
             }
-        }
 
-        // ---------------------------------------------------------------------
-        // Empty State (overlay on list view)
-        // ---------------------------------------------------------------------
-        Column {
-            id: emptyState
-            visible: todoListView.count === 0
-            anchors.centerIn: todoListView
-            spacing: 8
-            z: 1
+            // Empty State (overlay on list view)
+            Column {
+                id: emptyState
+                visible: todoListView.count === 0
+                anchors.centerIn: parent
+                spacing: 8
+                z: 1
 
-            Text {
-                text: "暂无待办事项"
-                font.pixelSize: 16
-                color: "#9CA3AF"
-                anchors.horizontalCenter: parent.horizontalCenter
-            }
+                Text {
+                    text: "暂无待办事项"
+                    font.pixelSize: 16
+                    color: "#9CA3AF"
+                    anchors.horizontalCenter: parent.horizontalCenter
+                }
 
-            Text {
-                text: "点击右上角 + 新建按钮添加"
-                font.pixelSize: 14
-                color: "#D1D5DB"
-                anchors.horizontalCenter: parent.horizontalCenter
+                Text {
+                    text: "点击右上角 + 新建按钮添加"
+                    font.pixelSize: 14
+                    color: "#D1D5DB"
+                    anchors.horizontalCenter: parent.horizontalCenter
+                }
             }
         }
     }
@@ -328,12 +326,12 @@ ApplicationWindow {
 
         onAccepted: {
             if (quickTitleField.text.trimmed().length > 0) {
-                todoService.createTodo(
+                todoService.createTodoFromQml(
                     quickTitleField.text.trimmed(),
                     "",
                     quickPriorityCombo.currentIndex + 1, // Priority enum starts at 1
-                    QUuid(), // No category
-                    QDateTime() // No due date
+                    "", // No category
+                    null // No due date
                 )
                 todoService.refresh()
                 quickTitleField.text = ""

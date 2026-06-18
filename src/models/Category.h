@@ -15,6 +15,7 @@ class Category : public QObject {
     Q_PROPERTY(QDateTime createdAt READ createdAt WRITE setCreatedAt NOTIFY createdAtChanged)
     Q_PROPERTY(QDateTime updatedAt READ updatedAt WRITE setUpdatedAt NOTIFY updatedAtChanged)
 
+public:
     explicit Category(QObject* parent = nullptr);
 
     QUuid id() const;

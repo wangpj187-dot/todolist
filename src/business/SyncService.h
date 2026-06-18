@@ -37,16 +37,16 @@ public:
     ~SyncService() override;
 
     // Configuration
-    bool configureGitHub(const QString& token,
-                         const QString& repo,
-                         const QString& branch) override;
+    Q_INVOKABLE bool configureGitHub(const QString& token,
+                                     const QString& repo,
+                                     const QString& branch) override;
 
-    bool testConnection() override;
-    void syncNow() override;
-    bool pushChanges() override;
-    bool pullChanges() override;
-    bool resolveConflict(const QUuid& todoId, bool useLocal) override;
-    void clearConfiguration() override;
+    Q_INVOKABLE bool testConnection() override;
+    Q_INVOKABLE void syncNow() override;
+    Q_INVOKABLE bool pushChanges() override;
+    Q_INVOKABLE bool pullChanges() override;
+    Q_INVOKABLE bool resolveConflict(const QUuid& todoId, bool useLocal) override;
+    Q_INVOKABLE void clearConfiguration() override;
 
     // Property getters
     bool isSyncing() const override;

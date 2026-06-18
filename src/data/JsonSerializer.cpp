@@ -5,7 +5,7 @@
 #include <QDebug>
 
 JsonSerializer::JsonSerializer(QObject* parent)
-    : QObject(parent)
+    : IJsonSerializer(parent)
 {
 }
 

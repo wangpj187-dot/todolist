@@ -5,13 +5,29 @@
 
 class IConfigService : public QObject {
     Q_OBJECT
+
+    Q_PROPERTY(Config* config READ config NOTIFY configChanged)
+    Q_PROPERTY(QString theme READ theme WRITE setTheme NOTIFY themeChanged)
+    Q_PROPERTY(bool autoSync READ autoSync WRITE setAutoSync NOTIFY autoSyncChanged)
+    Q_PROPERTY(int syncInterval READ syncInterval WRITE setSyncInterval NOTIFY syncIntervalChanged)
+    Q_PROPERTY(QString githubToken READ githubToken WRITE setGithubToken NOTIFY githubTokenChanged)
+    Q_PROPERTY(QString githubRepo READ githubRepo WRITE setGithubRepo NOTIFY githubRepoChanged)
+    Q_PROPERTY(QString githubBranch READ githubBranch WRITE setGithubBranch NOTIFY githubBranchChanged)
+    Q_PROPERTY(float windowOpacity READ windowOpacity WRITE setWindowOpacity NOTIFY windowOpacityChanged)
+    Q_PROPERTY(bool alwaysOnTop READ alwaysOnTop WRITE setAlwaysOnTop NOTIFY alwaysOnTopChanged)
+    Q_PROPERTY(bool reminderEnabled READ reminderEnabled WRITE setReminderEnabled NOTIFY reminderEnabledChanged)
+    Q_PROPERTY(int reminderAdvanceMinutes READ reminderAdvanceMinutes WRITE setReminderAdvanceMinutes NOTIFY reminderAdvanceMinutesChanged)
+    Q_PROPERTY(int windowX READ windowX WRITE setWindowX NOTIFY configChanged)
+    Q_PROPERTY(int windowY READ windowY WRITE setWindowY NOTIFY configChanged)
+    Q_PROPERTY(int windowWidth READ windowWidth WRITE setWindowWidth NOTIFY configChanged)
+    Q_PROPERTY(int windowHeight READ windowHeight WRITE setWindowHeight NOTIFY configChanged)
     
 public:
     virtual ~IConfigService() = default;
     
     virtual Config* config() const = 0;
-    virtual bool save() = 0;
-    virtual void resetToDefaults() = 0;
+    Q_INVOKABLE virtual bool save() = 0;
+    Q_INVOKABLE virtual void resetToDefaults() = 0;
     
     // Convenience getters/setters
     virtual QString theme() const = 0;

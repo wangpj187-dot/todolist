@@ -61,7 +61,7 @@ QList<Todo*> ReminderService::getUpcomingReminders() const
 
     QDateTime now = QDateTime::currentDateTime();
     int advanceMinutes = m_configService ? m_configService->reminderAdvanceMinutes() : 15;
-    QDateTime reminderWindow = now.addMinutes(advanceMinutes);
+    QDateTime reminderWindow = now.addSecs(advanceMinutes * 60);
 
     QList<Todo*> todos = m_todoService->getAllTodos();
     for (Todo* todo : todos) {
@@ -109,7 +109,7 @@ void ReminderService::dismissReminder(const QUuid& todoId)
 
 void ReminderService::snoozeReminder(const QUuid& todoId, int minutes)
 {
-    m_snoozedReminders[todoId] = QDateTime::currentDateTime().addMinutes(minutes);
+    m_snoozedReminders[todoId] = QDateTime::currentDateTime().addSecs(minutes * 60);
     m_dismissedReminders.removeOne(todoId);
     emit upcomingRemindersChanged();
 }

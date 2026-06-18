@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQuickStyle>
 #include <QDir>
 #include <QDebug>
 
@@ -36,6 +37,7 @@ int main(int argc, char *argv[])
     // Qt 6.5+ High DPI scaling policy
     QApplication::setHighDpiScaleFactorRoundingPolicy(
         Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
+    QQuickStyle::setStyle("Basic");
 
     QApplication app(argc, argv);
 
@@ -50,9 +52,8 @@ int main(int argc, char *argv[])
 
     // Initialize DatabaseManager
     DatabaseManager databaseManager;
-    QString dbPath = QDir::homePath() + "/.todoapp/todoapp.db";
-    if (!databaseManager.initialize(dbPath)) {
-        qCritical() << "Failed to initialize database at:" << dbPath;
+    if (!databaseManager.initialize()) {
+        qCritical() << "Failed to initialize database";
         return 1;
     }
 
@@ -70,14 +71,14 @@ int main(int argc, char *argv[])
     // -------------------------------------------------------------------------
 
     // ConfigService (should be first as other services may depend on config)
-    ConfigService configService(databaseManager);
+    ConfigService configService(&databaseManager);
     configService.load();
 
     // ThemeService
     ThemeService themeService(configService);
 
     // TodoService (core business logic)
-    TodoService todoService(databaseManager);
+    TodoService todoService(&databaseManager);
 
     // SyncService (depends on TodoService, GitClient, JsonSerializer)
     SyncService syncService(todoService, gitClient, jsonSerializer, encryptionUtil, configService);

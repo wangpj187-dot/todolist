@@ -24,6 +24,7 @@ class Config : public QObject {
     Q_PROPERTY(QDateTime createdAt READ createdAt WRITE setCreatedAt NOTIFY createdAtChanged)
     Q_PROPERTY(QDateTime updatedAt READ updatedAt WRITE setUpdatedAt NOTIFY updatedAtChanged)
 
+public:
     explicit Config(QObject* parent = nullptr);
 
     QString theme() const;

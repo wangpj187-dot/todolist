@@ -3,7 +3,6 @@ import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 import QtQuick.Window 2.15
 import TodoApp 1.0
-import "components"
 
 ApplicationWindow {
     id: widgetRoot
@@ -48,12 +47,15 @@ ApplicationWindow {
     MouseArea {
         id: dragArea
         anchors.fill: parent
-        drag.target: widgetRoot
-        drag.axis: Drag.XAndYAxis
-        drag.threshold: 0
         onPressed: {
             isDragging = true
             dragStartPos = Qt.point(mouse.x, mouse.y)
+        }
+        onPositionChanged: {
+            if (isDragging) {
+                widgetRoot.x += mouse.x - dragStartPos.x
+                widgetRoot.y += mouse.y - dragStartPos.y
+            }
         }
         onReleased: {
             isDragging = false
@@ -162,7 +164,6 @@ ApplicationWindow {
             topRightRadius: 0
             border.color: "#E5E7EB"
             border.width: 1
-            border.topWidth: 0
 
             // Show compact view or full view based on mode
             WidgetView {

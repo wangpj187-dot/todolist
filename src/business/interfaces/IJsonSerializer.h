@@ -13,6 +13,7 @@ class IJsonSerializer : public QObject {
     Q_OBJECT
 
 public:
+    explicit IJsonSerializer(QObject* parent = nullptr) : QObject(parent) {}
     virtual ~IJsonSerializer() = default;
 
     // Todo serialization

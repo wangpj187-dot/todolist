@@ -10,10 +10,37 @@
 
 // Constants
 constexpr int SALT_SIZE = 16;
-constexpr int IV_SIZE = 12;
-constexpr int TAG_SIZE = 16;
+constexpr int IV_SIZE = 16;
+constexpr int TAG_SIZE = 32;
 constexpr int PBKDF2_ITERATIONS = 100000;
 constexpr int KEY_SIZE = 32;
+
+namespace {
+
+bool constantTimeEquals(const QByteArray& left, const QByteArray& right)
+{
+    if (left.size() != right.size()) {
+        return false;
+    }
+
+    uchar diff = 0;
+    for (int i = 0; i < left.size(); ++i) {
+        diff |= static_cast<uchar>(left.at(i)) ^ static_cast<uchar>(right.at(i));
+    }
+    return diff == 0;
+}
+
+QByteArray authPayload(const QString& context, const QByteArray& salt,
+                       const QByteArray& iv, const QByteArray& ciphertext)
+{
+    QByteArray payload = context.toUtf8();
+    payload.append(salt);
+    payload.append(iv);
+    payload.append(ciphertext);
+    return payload;
+}
+
+}
 
 QByteArray EncryptionUtil::generateRandomBytes(int size)
 {
@@ -25,7 +52,7 @@ QByteArray EncryptionUtil::generateRandomBytes(int size)
     // Generate into a properly aligned buffer of quint32 to avoid buffer overflow
     int numQuint32 = (size + sizeof(quint32) - 1) / sizeof(quint32);
     QVector<quint32> buffer(numQuint32);
-    QRandomGenerator::system()->generate(buffer.data(), numQuint32);
+    QRandomGenerator::system()->generate(buffer.data(), buffer.data() + numQuint32);
 
     // Copy the requested number of bytes
     QByteArray result(size, Qt::Uninitialized);
@@ -97,9 +124,9 @@ QByteArray EncryptionUtil::getMachineSpecificSalt()
 
     // Machine ID (Linux) or equivalent
     machineData.append(QSysInfo::machineUniqueId());
-    machineData.append(QSysInfo::productType());
-    machineData.append(QSysInfo::productVersion());
-    machineData.append(QSysInfo::currentCpuArchitecture());
+    machineData.append(QSysInfo::productType().toUtf8());
+    machineData.append(QSysInfo::productVersion().toUtf8());
+    machineData.append(QSysInfo::currentCpuArchitecture().toUtf8());
     machineData.append(QDir::homePath().toUtf8());
     machineData.append(qgetenv("USERNAME"));
     machineData.append(qgetenv("USER"));
@@ -156,28 +183,28 @@ QByteArray EncryptionUtil::encrypt(const QString& plaintext, const QString& keyC
     }
 
     // Derive encryption key from master key and salt
-    QByteArray derivedKey = deriveKey(masterKey, salt, PBKDF2_ITERATIONS, KEY_SIZE);
-    if (derivedKey.isEmpty()) {
+    QByteArray keyMaterial = deriveKey(masterKey, salt, PBKDF2_ITERATIONS, KEY_SIZE * 2);
+    if (keyMaterial.size() < KEY_SIZE * 2) {
         qCritical() << "EncryptionUtil::encrypt: Failed to derive key";
         return QByteArray();
     }
+    QByteArray encryptionKey = keyMaterial.left(KEY_SIZE);
+    QByteArray authenticationKey = keyMaterial.mid(KEY_SIZE, KEY_SIZE);
 
-    // Encrypt using AES-256-GCM
-    QAESEncryption encryption(QAESEncryption::AES_256, QAESEncryption::GCM);
+    // Encrypt using AES-256-CTR and authenticate with HMAC-SHA256.
+    QAESEncryption encryption(QAESEncryption::AES_256, QAESEncryption::CTR, QAESEncryption::NONE);
     QByteArray plaintextBytes = plaintext.toUtf8();
 
-    // Add authentication data (key context)
-    encryption.addAuthData(keyContext.toUtf8());
+    bool ok = false;
+    QByteArray ciphertext = encryption.encode(plaintextBytes, encryptionKey, iv, &ok);
+    QByteArray tag = hmacSha256(authenticationKey, authPayload(keyContext, salt, iv, ciphertext));
 
-    QByteArray ciphertext = encryption.encode(plaintextBytes, derivedKey, iv);
-    QByteArray tag = encryption.getTag();
-
-    if (ciphertext.isEmpty() || tag.isEmpty()) {
+    if (!ok || ciphertext.isEmpty() || tag.size() != TAG_SIZE) {
         qCritical() << "EncryptionUtil::encrypt: Encryption failed";
         return QByteArray();
     }
 
-    // Format: [salt(16)][iv(12)][tag(16)][ciphertext]
+    // Format: [salt(16)][iv(16)][tag(32)][ciphertext]
     QByteArray result;
     result.reserve(SALT_SIZE + IV_SIZE + TAG_SIZE + ciphertext.size());
     result.append(salt);
@@ -209,33 +236,26 @@ QString EncryptionUtil::decrypt(const QByteArray& encryptedData, const QString& 
     QByteArray ciphertext = encryptedData.mid(SALT_SIZE + IV_SIZE + TAG_SIZE);
 
     // Derive encryption key
-    QByteArray derivedKey = deriveKey(masterKey, salt, PBKDF2_ITERATIONS, KEY_SIZE);
-    if (derivedKey.isEmpty()) {
+    QByteArray keyMaterial = deriveKey(masterKey, salt, PBKDF2_ITERATIONS, KEY_SIZE * 2);
+    if (keyMaterial.size() < KEY_SIZE * 2) {
         qCritical() << "EncryptionUtil::decrypt: Failed to derive key";
         return QString();
     }
+    QByteArray encryptionKey = keyMaterial.left(KEY_SIZE);
+    QByteArray authenticationKey = keyMaterial.mid(KEY_SIZE, KEY_SIZE);
 
-    // Decrypt using AES-256-GCM
-    QAESEncryption encryption(QAESEncryption::AES_256, QAESEncryption::GCM);
-
-    // Add authentication data (must match encryption)
-    encryption.addAuthData(keyContext.toUtf8());
-
-    // Set the expected tag for verification
-    encryption.setTag(tag);
-
-    QByteArray decrypted = encryption.decode(ciphertext, derivedKey, iv);
-
-    // Verify authentication tag
-    if (!encryption.verifyTag()) {
+    QByteArray expectedTag = hmacSha256(authenticationKey, authPayload(keyContext, salt, iv, ciphertext));
+    if (!constantTimeEquals(tag, expectedTag)) {
         qCritical() << "EncryptionUtil::decrypt: Authentication tag verification failed";
         return QString();
     }
 
-    // Remove PKCS7 padding
-    decrypted = QAESEncryption::removePadding(decrypted);
+    // Decrypt using AES-256-CTR.
+    QAESEncryption encryption(QAESEncryption::AES_256, QAESEncryption::CTR, QAESEncryption::NONE);
+    bool ok = false;
+    QByteArray decrypted = encryption.decode(ciphertext, encryptionKey, iv, &ok);
 
-    if (decrypted.isEmpty()) {
+    if (!ok || decrypted.isEmpty()) {
         qCritical() << "EncryptionUtil::decrypt: Decryption produced empty result";
         return QString();
     }
@@ -552,7 +572,7 @@ bool EncryptionUtil::storeKeyPlatform(const QString& keyName, const QByteArray& 
     // Use a machine-specific salt to encrypt the key before storage
     QByteArray machineSalt = getMachineSpecificSalt();
 
-    // Encrypt the key using AES-256-GCM with the machine salt
+    // Encrypt the key using AES-256-CTR with HMAC-SHA256 authentication.
     QByteArray salt = generateRandomBytes(SALT_SIZE);
     QByteArray iv = generateRandomBytes(IV_SIZE);
 
@@ -561,24 +581,26 @@ bool EncryptionUtil::storeKeyPlatform(const QString& keyName, const QByteArray& 
         return false;
     }
 
-    QByteArray derivedKey = deriveKey(machineSalt, salt, PBKDF2_ITERATIONS, KEY_SIZE);
-    if (derivedKey.isEmpty()) {
+    QByteArray keyMaterial = deriveKey(machineSalt, salt, PBKDF2_ITERATIONS, KEY_SIZE * 2);
+    if (keyMaterial.size() < KEY_SIZE * 2) {
         qCritical() << "EncryptionUtil::storeKeyPlatform: Failed to derive key";
         return false;
     }
+    QByteArray encryptionKey = keyMaterial.left(KEY_SIZE);
+    QByteArray authenticationKey = keyMaterial.mid(KEY_SIZE, KEY_SIZE);
 
-    QAESEncryption encryption(QAESEncryption::AES_256, QAESEncryption::GCM);
-    encryption.addAuthData(keyName.toUtf8());
+    QAESEncryption encryption(QAESEncryption::AES_256, QAESEncryption::CTR, QAESEncryption::NONE);
 
-    QByteArray ciphertext = encryption.encode(key, derivedKey, iv);
-    QByteArray tag = encryption.getTag();
+    bool ok = false;
+    QByteArray ciphertext = encryption.encode(key, encryptionKey, iv, &ok);
+    QByteArray tag = hmacSha256(authenticationKey, authPayload(keyName, salt, iv, ciphertext));
 
-    if (ciphertext.isEmpty() || tag.isEmpty()) {
+    if (!ok || ciphertext.isEmpty() || tag.size() != TAG_SIZE) {
         qCritical() << "EncryptionUtil::storeKeyPlatform: Key encryption failed";
         return false;
     }
 
-    // Format: [salt(16)][iv(12)][tag(16)][encrypted_key]
+    // Format: [salt(16)][iv(16)][tag(32)][encrypted_key]
     QByteArray encryptedKey;
     encryptedKey.reserve(SALT_SIZE + IV_SIZE + TAG_SIZE + ciphertext.size());
     encryptedKey.append(salt);
@@ -637,25 +659,28 @@ QByteArray EncryptionUtil::loadKeyPlatform(const QString& keyName)
 
     // Derive key from machine-specific salt
     QByteArray machineSalt = getMachineSpecificSalt();
-    QByteArray derivedKey = deriveKey(machineSalt, salt, PBKDF2_ITERATIONS, KEY_SIZE);
-    if (derivedKey.isEmpty()) {
+    QByteArray keyMaterial = deriveKey(machineSalt, salt, PBKDF2_ITERATIONS, KEY_SIZE * 2);
+    if (keyMaterial.size() < KEY_SIZE * 2) {
         qCritical() << "EncryptionUtil::loadKeyPlatform: Failed to derive key";
         return QByteArray();
     }
+    QByteArray encryptionKey = keyMaterial.left(KEY_SIZE);
+    QByteArray authenticationKey = keyMaterial.mid(KEY_SIZE, KEY_SIZE);
 
-    // Decrypt
-    QAESEncryption encryption(QAESEncryption::AES_256, QAESEncryption::GCM);
-    encryption.addAuthData(keyName.toUtf8());
-    encryption.setTag(tag);
-
-    QByteArray decrypted = encryption.decode(ciphertext, derivedKey, iv);
-
-    if (!encryption.verifyTag()) {
+    QByteArray expectedTag = hmacSha256(authenticationKey, authPayload(keyName, salt, iv, ciphertext));
+    if (!constantTimeEquals(tag, expectedTag)) {
         qCritical() << "EncryptionUtil::loadKeyPlatform: Tag verification failed - key may be corrupted or tampered";
         return QByteArray();
     }
 
-    decrypted = QAESEncryption::removePadding(decrypted);
+    // Decrypt
+    QAESEncryption encryption(QAESEncryption::AES_256, QAESEncryption::CTR, QAESEncryption::NONE);
+    bool ok = false;
+    QByteArray decrypted = encryption.decode(ciphertext, encryptionKey, iv, &ok);
+    if (!ok) {
+        qCritical() << "EncryptionUtil::loadKeyPlatform: Key decryption failed";
+        return QByteArray();
+    }
 
     return decrypted;
 }
