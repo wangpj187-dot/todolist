@@ -1,6 +1,7 @@
 module TodoApp.Components
 TodoItem 1.0 TodoItem.qml
 TodoForm 1.0 TodoForm.qml
+DateReviewDialog 1.0 DateReviewDialog.qml
 GitHubSettings 1.0 GitHubSettings.qml
 SyncStatusPanel 1.0 SyncStatusPanel.qml
 WidgetWindow 1.0 WidgetWindow.qml

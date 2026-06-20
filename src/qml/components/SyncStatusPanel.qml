@@ -45,7 +45,7 @@ Rectangle {
 
     // Formatted last sync time
     property string lastSyncText: {
-        if (!syncService.lastSyncTime || !syncService.lastSyncTime.isValid) {
+        if (!syncService.lastSyncTime || typeof syncService.lastSyncTime.getTime !== "function" || isNaN(syncService.lastSyncTime.getTime())) {
             return "尚未同步"
         }
         var now = new Date()

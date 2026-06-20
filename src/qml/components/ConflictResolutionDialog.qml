@@ -83,7 +83,7 @@ Dialog {
     }
 
     function formatDate(date) {
-        if (!date || !date.isValid || date.toString().length === 0) {
+        if (!date || typeof date.getTime !== "function" || isNaN(date.getTime())) {
             return "无"
         }
         return date.toLocaleString(Qt.locale("zh_CN"), Locale.ShortFormat)

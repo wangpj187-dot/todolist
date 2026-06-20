@@ -1,11 +1,135 @@
 #include "TodoService.h"
 
+#include <QCoreApplication>
+#include <QDate>
 #include <QDateTime>
+#include <QDir>
+#include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QMap>
+#include <QRegularExpression>
+#include <QSaveFile>
+#include <QSettings>
+#include <QTime>
+#include <QTimer>
+#include <QUrl>
 #include <QUuid>
+#include <QVariantMap>
 #include <QDebug>
 #include <algorithm>
+#include <limits>
 
 namespace {
+
+const QString kFlagTag = QStringLiteral("旗标");
+const QStringList kDefaultTagNames = {
+    QStringLiteral("工作"),
+    QStringLiteral("学习"),
+    QStringLiteral("娱乐"),
+    QStringLiteral("消费"),
+    QStringLiteral("羽毛球"),
+    QStringLiteral("健身")
+};
+const QString kSummaryFileName = QStringLiteral("todolist-summary.json");
+const QString kSummarySettingsGroup = QStringLiteral("dailySummary");
+
+QString priorityKey(Todo::Priority priority)
+{
+    switch (priority) {
+    case Todo::Priority::Low:
+        return QStringLiteral("low");
+    case Todo::Priority::Medium:
+        return QStringLiteral("medium");
+    case Todo::Priority::High:
+        return QStringLiteral("high");
+    case Todo::Priority::Urgent:
+        return QStringLiteral("urgent");
+    }
+    return QStringLiteral("unknown");
+}
+
+QString priorityLabel(Todo::Priority priority)
+{
+    switch (priority) {
+    case Todo::Priority::Low:
+        return QStringLiteral("低");
+    case Todo::Priority::Medium:
+        return QStringLiteral("中");
+    case Todo::Priority::High:
+        return QStringLiteral("高");
+    case Todo::Priority::Urgent:
+        return QStringLiteral("紧急");
+    }
+    return QStringLiteral("未知");
+}
+
+QString statusKey(Todo::TodoStatus status)
+{
+    switch (status) {
+    case Todo::TodoStatus::Pending:
+        return QStringLiteral("pending");
+    case Todo::TodoStatus::InProgress:
+        return QStringLiteral("in_progress");
+    case Todo::TodoStatus::Completed:
+        return QStringLiteral("completed");
+    case Todo::TodoStatus::Cancelled:
+        return QStringLiteral("cancelled");
+    }
+    return QStringLiteral("unknown");
+}
+
+QString statusLabel(Todo::TodoStatus status)
+{
+    switch (status) {
+    case Todo::TodoStatus::Pending:
+        return QStringLiteral("待处理");
+    case Todo::TodoStatus::InProgress:
+        return QStringLiteral("进行中");
+    case Todo::TodoStatus::Completed:
+        return QStringLiteral("已完成");
+    case Todo::TodoStatus::Cancelled:
+        return QStringLiteral("已取消");
+    }
+    return QStringLiteral("未知");
+}
+
+bool belongsToTodaySurface(Todo* todo, const QDate& today)
+{
+    if (!todo) {
+        return false;
+    }
+
+    if (todo->status() == Todo::TodoStatus::Completed
+        || todo->status() == Todo::TodoStatus::Cancelled) {
+        return false;
+    }
+
+    const bool hasDueDate = todo->dueDate().isValid() && !todo->dueDate().isNull();
+    if (hasDueDate) {
+        return todo->dueDate().toLocalTime().date() == today;
+    }
+
+    return todo->createdAt().isValid() && todo->createdAt().toLocalTime().date() == today;
+}
+
+QString dateTimeToIsoString(const QDateTime& dateTime)
+{
+    if (!dateTime.isValid() || dateTime.isNull()) {
+        return QString();
+    }
+    return dateTime.toLocalTime().toString(Qt::ISODateWithMs);
+}
+
+QJsonArray tagsToJsonArray(const QVector<QString>& tags)
+{
+    QJsonArray result;
+    for (const QString& tag : tags) {
+        result.append(tag);
+    }
+    return result;
+}
 
 QUuid uuidFromVariant(const QVariant& value)
 {
@@ -46,6 +170,102 @@ QDateTime dateTimeFromVariant(const QVariant& value)
     return dateTime;
 }
 
+QDate dateFromVariant(const QVariant& value)
+{
+    if (!value.isValid() || value.isNull()) {
+        return QDate::currentDate();
+    }
+
+    if (value.canConvert<QDate>()) {
+        const QDate date = value.toDate();
+        if (date.isValid()) {
+            return date;
+        }
+    }
+
+    if (value.canConvert<QDateTime>()) {
+        const QDateTime dateTime = value.toDateTime();
+        if (dateTime.isValid()) {
+            return dateTime.toLocalTime().date();
+        }
+    }
+
+    const QString text = value.toString().trimmed();
+    if (text.isEmpty()) {
+        return QDate::currentDate();
+    }
+
+    QDate date = QDate::fromString(text, Qt::ISODate);
+    if (!date.isValid()) {
+        date = QDateTime::fromString(text, Qt::ISODate).toLocalTime().date();
+    }
+    if (!date.isValid()) {
+        date = QDateTime::fromString(text, QStringLiteral("yyyy-MM-dd HH:mm")).toLocalTime().date();
+    }
+
+    return date.isValid() ? date : QDate::currentDate();
+}
+
+QString normalizeTagName(const QString& value)
+{
+    QString tag = value.trimmed();
+    while (tag.startsWith(QLatin1Char('#'))) {
+        tag.remove(0, 1);
+        tag = tag.trimmed();
+    }
+    return tag;
+}
+
+QStringList tagListFromVariant(const QVariant& value)
+{
+    QStringList tags;
+    auto appendTag = [&tags](const QString& rawTag) {
+        const QString tag = normalizeTagName(rawTag);
+        if (!tag.isEmpty() && !tags.contains(tag)) {
+            tags.append(tag);
+        }
+    };
+
+    if (!value.isValid() || value.isNull()) {
+        return tags;
+    }
+
+    if (value.canConvert<QStringList>()) {
+        for (const QString& tag : value.toStringList()) {
+            appendTag(tag);
+        }
+        return tags;
+    }
+
+    const QVariantList list = value.toList();
+    if (!list.isEmpty()) {
+        for (const QVariant& item : list) {
+            appendTag(item.toString());
+        }
+        return tags;
+    }
+
+    const QString text = value.toString();
+    const QStringList parts = text.split(QRegularExpression(QStringLiteral("[#\\s,，、;；]+")),
+                                         Qt::SkipEmptyParts);
+    for (const QString& part : parts) {
+        appendTag(part);
+    }
+
+    return tags;
+}
+
+QVector<QString> tagVectorFromVariant(const QVariant& value)
+{
+    const QStringList list = tagListFromVariant(value);
+    QVector<QString> tags;
+    tags.reserve(list.size());
+    for (const QString& tag : list) {
+        tags.append(tag);
+    }
+    return tags;
+}
+
 }
 
 TodoService::TodoService(DatabaseManager* db, QObject* parent)
@@ -55,9 +275,24 @@ TodoService::TodoService(DatabaseManager* db, QObject* parent)
     , m_filterPriority(0)  // 0 = All
     , m_sortBy(QStringLiteral("createdAt"))
     , m_sortOrder(Qt::DescendingOrder)
+    , m_smartFilterMode(0)
+    , m_summaryExportPath(defaultSummaryExportPath())
+    , m_summaryAutoRefresh(true)
+    , m_dailySummaryTimer(new QTimer(this))
 {
     setParent(parent);
+    loadSummarySettings();
     refresh();
+
+    connect(m_dailySummaryTimer, &QTimer::timeout, this, [this]() {
+        runDailySummaryRefresh();
+    });
+
+    if (m_summaryAutoRefresh) {
+        QTimer::singleShot(0, this, [this]() {
+            runDailySummaryRefresh();
+        });
+    }
 }
 
 TodoService::~TodoService()
@@ -189,12 +424,18 @@ bool TodoService::updateTodo(const QUuid& todoId,
         return false;
     }
 
+    const Todo::TodoStatus previousStatus = todo->status();
     todo->setTitle(title);
     todo->setDescription(description);
     todo->setPriority(priority);
     todo->setCategoryId(categoryId);
     todo->setDueDate(dueDate);
     todo->setStatus(status);
+    if (status == Todo::TodoStatus::Completed && previousStatus != Todo::TodoStatus::Completed) {
+        todo->setCompletedAt(QDateTime::currentDateTimeUtc());
+    } else if (status != Todo::TodoStatus::Completed) {
+        todo->setCompletedAt(QDateTime());
+    }
     todo->setUpdatedAt(QDateTime::currentDateTimeUtc());
 
     if (!todo->isValid()) {
@@ -246,6 +487,259 @@ bool TodoService::updateTodoFromQml(const QVariant& todoId,
                       uuidFromVariant(categoryId),
                       dateTimeFromVariant(dueDate),
                       static_cast<Todo::TodoStatus>(status));
+}
+
+QUuid TodoService::createTodoFromQmlWithTags(const QString& title,
+                                             const QString& description,
+                                             int priority,
+                                             const QVariant& categoryId,
+                                             const QVariant& dueDate,
+                                             const QVariant& tags)
+{
+    const QUuid id = createTodo(title,
+                                description,
+                                static_cast<Todo::Priority>(priority),
+                                uuidFromVariant(categoryId),
+                                dateTimeFromVariant(dueDate));
+
+    if (!id.isNull()) {
+        updateTodoTagsFromQml(id, tags);
+    }
+
+    return id;
+}
+
+bool TodoService::updateTodoFromQmlWithTags(const QVariant& todoId,
+                                            const QString& title,
+                                            const QString& description,
+                                            int priority,
+                                            const QVariant& categoryId,
+                                            const QVariant& dueDate,
+                                            int status,
+                                            const QVariant& tags)
+{
+    const QUuid id = uuidFromVariant(todoId);
+    if (!updateTodo(id,
+                    title,
+                    description,
+                    static_cast<Todo::Priority>(priority),
+                    uuidFromVariant(categoryId),
+                    dateTimeFromVariant(dueDate),
+                    static_cast<Todo::TodoStatus>(status))) {
+        return false;
+    }
+
+    return updateTodoTagsFromQml(id, tags);
+}
+
+bool TodoService::updateTodoTagsFromQml(const QVariant& todoId, const QVariant& tags)
+{
+    if (!m_db || !m_db->isInitialized()) {
+        emit errorOccurred(QStringLiteral("Database is not initialized"));
+        return false;
+    }
+
+    const QUuid id = uuidFromVariant(todoId);
+    Todo* todo = findTodo(id);
+    if (!todo) {
+        emit errorOccurred(QStringLiteral("Todo not found"));
+        return false;
+    }
+
+    todo->setTags(tagVectorFromVariant(tags));
+    todo->setUpdatedAt(QDateTime::currentDateTimeUtc());
+
+    try {
+        if (!m_db->updateTodo(todo)) {
+            emit errorOccurred(QStringLiteral("Failed to update todo tags in database"));
+            return false;
+        }
+    } catch (const DatabaseException& e) {
+        emit errorOccurred(QString::fromStdString(e.what()));
+        return false;
+    }
+
+    emit todoUpdated(id);
+    emit dataChanged();
+
+    return true;
+}
+
+bool TodoService::toggleFlagFromQml(const QVariant& todoId)
+{
+    const QUuid id = uuidFromVariant(todoId);
+    Todo* todo = findTodo(id);
+    if (!todo) {
+        emit errorOccurred(QStringLiteral("Todo not found"));
+        return false;
+    }
+
+    QVector<QString> tags = todo->tags();
+    if (tags.contains(kFlagTag)) {
+        tags.removeOne(kFlagTag);
+    } else {
+        tags.append(kFlagTag);
+    }
+
+    QVariantList tagVariants;
+    for (const QString& tag : tags) {
+        tagVariants.append(tag);
+    }
+
+    return updateTodoTagsFromQml(id, tagVariants);
+}
+
+bool TodoService::setTodoStatusFromQml(const QVariant& todoId, int status)
+{
+    const QUuid id = uuidFromVariant(todoId);
+    Todo* todo = findTodo(id);
+    if (!todo) {
+        emit errorOccurred(QStringLiteral("Todo not found"));
+        return false;
+    }
+
+    if (status < static_cast<int>(Todo::TodoStatus::Pending)
+        || status > static_cast<int>(Todo::TodoStatus::Cancelled)) {
+        emit errorOccurred(QStringLiteral("Invalid todo status"));
+        return false;
+    }
+
+    return updateTodo(id,
+                      todo->title(),
+                      todo->description(),
+                      todo->priority(),
+                      todo->categoryId(),
+                      todo->dueDate(),
+                      static_cast<Todo::TodoStatus>(status));
+}
+
+bool TodoService::setTodoPriorityFromQml(const QVariant& todoId, int priority)
+{
+    const QUuid id = uuidFromVariant(todoId);
+    Todo* todo = findTodo(id);
+    if (!todo) {
+        emit errorOccurred(QStringLiteral("Todo not found"));
+        return false;
+    }
+
+    if (priority < static_cast<int>(Todo::Priority::Low)
+        || priority > static_cast<int>(Todo::Priority::Urgent)) {
+        emit errorOccurred(QStringLiteral("Invalid todo priority"));
+        return false;
+    }
+
+    return updateTodo(id,
+                      todo->title(),
+                      todo->description(),
+                      static_cast<Todo::Priority>(priority),
+                      todo->categoryId(),
+                      todo->dueDate(),
+                      todo->status());
+}
+
+QVariantList TodoService::getTodosForDateFromQml(const QVariant& date) const
+{
+    const QDate targetDate = dateFromVariant(date);
+    QList<Todo*> matchedTodos;
+
+    for (Todo* todo : m_todos) {
+        if (!todo) {
+            continue;
+        }
+
+        const bool hasDueDate = todo->dueDate().isValid() && !todo->dueDate().isNull();
+        const bool hasCompletedAt = todo->completedAt().isValid() && !todo->completedAt().isNull();
+        const bool dueOnDate = hasDueDate && todo->dueDate().toLocalTime().date() == targetDate;
+        const bool completedOnDate = hasCompletedAt && todo->completedAt().toLocalTime().date() == targetDate;
+        const bool createdOnDate = !hasDueDate && todo->createdAt().isValid()
+                                   && todo->createdAt().toLocalTime().date() == targetDate;
+
+        if (dueOnDate || completedOnDate || createdOnDate) {
+            matchedTodos.append(todo);
+        }
+    }
+
+    std::sort(matchedTodos.begin(), matchedTodos.end(), [](Todo* a, Todo* b) {
+        const bool aCompleted = a->status() == Todo::TodoStatus::Completed;
+        const bool bCompleted = b->status() == Todo::TodoStatus::Completed;
+        if (aCompleted != bCompleted) {
+            return !aCompleted;
+        }
+
+        const bool aHasDueDate = a->dueDate().isValid() && !a->dueDate().isNull();
+        const bool bHasDueDate = b->dueDate().isValid() && !b->dueDate().isNull();
+        if (aHasDueDate != bHasDueDate) {
+            return aHasDueDate;
+        }
+        if (aHasDueDate && bHasDueDate && a->dueDate() != b->dueDate()) {
+            return a->dueDate() < b->dueDate();
+        }
+
+        if (a->priority() != b->priority()) {
+            return static_cast<int>(a->priority()) > static_cast<int>(b->priority());
+        }
+
+        return a->createdAt() < b->createdAt();
+    });
+
+    QVariantList result;
+    const QDateTime now = QDateTime::currentDateTime();
+
+    for (Todo* todo : matchedTodos) {
+        const bool hasDueDate = todo->dueDate().isValid() && !todo->dueDate().isNull();
+        const bool hasCompletedAt = todo->completedAt().isValid() && !todo->completedAt().isNull();
+        const bool isOpen = todo->status() != Todo::TodoStatus::Completed
+                            && todo->status() != Todo::TodoStatus::Cancelled;
+        const bool dueOnDate = hasDueDate && todo->dueDate().toLocalTime().date() == targetDate;
+        const bool completedOnDate = hasCompletedAt && todo->completedAt().toLocalTime().date() == targetDate;
+        const bool createdOnDate = !hasDueDate && todo->createdAt().isValid()
+                                   && todo->createdAt().toLocalTime().date() == targetDate;
+
+        QStringList tagList;
+        for (const QString& tag : todo->tags()) {
+            tagList.append(tag);
+        }
+
+        QStringList relationLabels;
+        if (dueOnDate) {
+            relationLabels.append(QStringLiteral("截止"));
+        }
+        if (completedOnDate) {
+            relationLabels.append(QStringLiteral("完成"));
+        }
+        if (createdOnDate) {
+            relationLabels.append(QStringLiteral("创建"));
+        }
+
+        QVariantMap map;
+        map.insert(QStringLiteral("id"), todo->id().toString(QUuid::WithoutBraces));
+        map.insert(QStringLiteral("title"), todo->title());
+        map.insert(QStringLiteral("description"), todo->description());
+        map.insert(QStringLiteral("priority"), static_cast<int>(todo->priority()));
+        map.insert(QStringLiteral("priorityLabel"), priorityLabel(todo->priority()));
+        map.insert(QStringLiteral("categoryId"), todo->categoryId().isNull()
+                   ? QString()
+                   : todo->categoryId().toString(QUuid::WithoutBraces));
+        map.insert(QStringLiteral("dueDate"), todo->dueDate());
+        map.insert(QStringLiteral("createdAt"), todo->createdAt());
+        map.insert(QStringLiteral("updatedAt"), todo->updatedAt());
+        map.insert(QStringLiteral("completedAt"), todo->completedAt());
+        map.insert(QStringLiteral("status"), static_cast<int>(todo->status()));
+        map.insert(QStringLiteral("statusLabel"), statusLabel(todo->status()));
+        map.insert(QStringLiteral("tags"), tagList);
+        map.insert(QStringLiteral("isOpen"), isOpen);
+        map.insert(QStringLiteral("isCompleted"), todo->status() == Todo::TodoStatus::Completed);
+        map.insert(QStringLiteral("isCancelled"), todo->status() == Todo::TodoStatus::Cancelled);
+        map.insert(QStringLiteral("isOverdue"), isOpen && hasDueDate && todo->dueDate().toLocalTime() < now);
+        map.insert(QStringLiteral("isFlagged"), todo->tags().contains(kFlagTag));
+        map.insert(QStringLiteral("dueOnDate"), dueOnDate);
+        map.insert(QStringLiteral("completedOnDate"), completedOnDate);
+        map.insert(QStringLiteral("createdOnDate"), createdOnDate);
+        map.insert(QStringLiteral("relationLabels"), relationLabels);
+        result.append(map);
+    }
+
+    return result;
 }
 
 bool TodoService::deleteTodo(const QUuid& todoId)
@@ -648,23 +1142,120 @@ bool TodoService::removeTagFromTodo(const QUuid& todoId, const QString& tag)
 
 QStringList TodoService::getAllTags() const
 {
+    QStringList tags = kDefaultTagNames;
+
     if (!m_db || !m_db->isInitialized()) {
-        return QStringList();
+        return tags;
     }
 
     try {
-        return m_db->getAllTags();
+        const QStringList storedTags = m_db->getAllTags();
+        for (const QString& storedTag : storedTags) {
+            const QString tag = normalizeTagName(storedTag);
+            if (!tag.isEmpty() && !tags.contains(tag)) {
+                tags.append(tag);
+            }
+        }
+        return tags;
     } catch (const DatabaseException& e) {
         emit const_cast<TodoService*>(this)->errorOccurred(QString::fromStdString(e.what()));
-        return QStringList();
+        return tags;
     }
+}
+
+// ==================== Daily summary export ====================
+
+bool TodoService::exportTaskSummaryNow()
+{
+    return exportTaskSummaryToPath(m_summaryExportPath);
+}
+
+bool TodoService::exportTaskSummaryToPath(const QString& path)
+{
+    const QString normalizedPath = normalizeSummaryExportPath(path);
+    if (m_summaryExportPath != normalizedPath) {
+        m_summaryExportPath = normalizedPath;
+        saveSummarySettings();
+        emit summaryExportPathChanged();
+    }
+
+    return writeTaskSummaryFile(normalizedPath);
+}
+
+void TodoService::resetSummaryExportPath()
+{
+    setSummaryExportPath(defaultSummaryExportPath());
+}
+
+QString TodoService::defaultSummaryExportPath() const
+{
+    const QString basePath = QCoreApplication::applicationDirPath().isEmpty()
+        ? QDir::currentPath()
+        : QCoreApplication::applicationDirPath();
+    return QDir(basePath).filePath(kSummaryFileName);
 }
 
 // ==================== Filtering and sorting ====================
 
 QList<Todo*> TodoService::getFilteredTodos() const
 {
-    return getFilteredTodos(m_filterStatus, m_filterPriority, m_filterCategoryId, m_searchQuery, m_sortBy, m_sortOrder);
+    QList<Todo*> result = getFilteredTodos(m_filterStatus,
+                                           m_filterPriority,
+                                           m_filterCategoryId,
+                                           m_searchQuery,
+                                           m_sortBy,
+                                           m_sortOrder);
+
+    QList<Todo*> filteredResult;
+    const QDate today = QDate::currentDate();
+    const QDateTime now = QDateTime::currentDateTime();
+
+    for (Todo* todo : result) {
+        const bool isOpen = todo->status() != Todo::TodoStatus::Completed
+                            && todo->status() != Todo::TodoStatus::Cancelled;
+        const bool hasDueDate = todo->dueDate().isValid() && !todo->dueDate().isNull();
+        const bool matchesTag = m_filterTag.isEmpty() || todo->tags().contains(m_filterTag);
+
+        if (!matchesTag || !belongsToTodaySurface(todo, today)) {
+            continue;
+        }
+
+        switch (m_smartFilterMode) {
+        case 0:
+            filteredResult.append(todo);
+            break;
+        case 1:  // Today
+            if (isOpen) {
+                filteredResult.append(todo);
+            }
+            break;
+        case 2:  // Scheduled
+            if (isOpen && hasDueDate) {
+                filteredResult.append(todo);
+            }
+            break;
+        case 3:  // High priority and urgent
+            if (isOpen && static_cast<int>(todo->priority()) >= static_cast<int>(Todo::Priority::High)) {
+                filteredResult.append(todo);
+            }
+            break;
+        case 4:  // Flagged
+            if (isOpen && todo->tags().contains(kFlagTag)) {
+                filteredResult.append(todo);
+            }
+            break;
+        case 5:  // Overdue, reserved for future UI entry
+            if (isOpen && hasDueDate && todo->dueDate() < now) {
+                filteredResult.append(todo);
+            }
+            break;
+        default:
+            filteredResult.append(todo);
+            break;
+        }
+    }
+
+    return filteredResult;
 }
 
 QList<Todo*> TodoService::getFilteredTodos(int status,
@@ -828,6 +1419,36 @@ Qt::SortOrder TodoService::sortOrder() const
     return m_sortOrder;
 }
 
+int TodoService::smartFilterMode() const
+{
+    return m_smartFilterMode;
+}
+
+QString TodoService::filterTag() const
+{
+    return m_filterTag;
+}
+
+QString TodoService::summaryExportPath() const
+{
+    return m_summaryExportPath;
+}
+
+bool TodoService::summaryAutoRefresh() const
+{
+    return m_summaryAutoRefresh;
+}
+
+QDateTime TodoService::summaryLastExportedAt() const
+{
+    return m_summaryLastExportedAt;
+}
+
+QString TodoService::summaryLastExportError() const
+{
+    return m_summaryLastExportError;
+}
+
 // ==================== Property setters ====================
 
 void TodoService::setFilterStatus(int status)
@@ -881,6 +1502,51 @@ void TodoService::setSortOrder(Qt::SortOrder order)
         m_sortOrder = order;
         emit sortOrderChanged();
         emit dataChanged();
+    }
+}
+
+void TodoService::setSmartFilterMode(int mode)
+{
+    const int normalizedMode = std::max(0, std::min(mode, 5));
+    if (m_smartFilterMode != normalizedMode) {
+        m_smartFilterMode = normalizedMode;
+        emit smartFilterModeChanged();
+        emit dataChanged();
+    }
+}
+
+void TodoService::setFilterTag(const QString& tag)
+{
+    const QString normalizedTag = normalizeTagName(tag);
+    if (m_filterTag != normalizedTag) {
+        m_filterTag = normalizedTag;
+        emit filterTagChanged();
+        emit dataChanged();
+    }
+}
+
+void TodoService::setSummaryExportPath(const QString& path)
+{
+    const QString normalizedPath = normalizeSummaryExportPath(path);
+    if (m_summaryExportPath != normalizedPath) {
+        m_summaryExportPath = normalizedPath;
+        saveSummarySettings();
+        emit summaryExportPathChanged();
+    }
+}
+
+void TodoService::setSummaryAutoRefresh(bool enabled)
+{
+    if (m_summaryAutoRefresh != enabled) {
+        m_summaryAutoRefresh = enabled;
+        saveSummarySettings();
+        emit summaryAutoRefreshChanged();
+
+        if (m_summaryAutoRefresh) {
+            runDailySummaryRefresh();
+        } else if (m_dailySummaryTimer) {
+            m_dailySummaryTimer->stop();
+        }
     }
 }
 
@@ -938,4 +1604,360 @@ void TodoService::loadFromDatabase()
     } catch (const DatabaseException& e) {
         emit errorOccurred(QString::fromStdString(e.what()));
     }
+}
+
+void TodoService::loadSummarySettings()
+{
+    QSettings settings;
+    settings.beginGroup(kSummarySettingsGroup);
+
+    m_summaryExportPath = normalizeSummaryExportPath(
+        settings.value(QStringLiteral("exportPath"), defaultSummaryExportPath()).toString());
+    m_summaryAutoRefresh = settings.value(QStringLiteral("autoRefresh"), true).toBool();
+    m_summaryLastExportDate = QDate::fromString(
+        settings.value(QStringLiteral("lastExportDate")).toString(), Qt::ISODate);
+    m_summaryLastExportedAt = QDateTime::fromString(
+        settings.value(QStringLiteral("lastExportedAt")).toString(), Qt::ISODateWithMs);
+    if (!m_summaryLastExportedAt.isValid()) {
+        m_summaryLastExportedAt = QDateTime::fromString(
+            settings.value(QStringLiteral("lastExportedAt")).toString(), Qt::ISODate);
+    }
+
+    settings.endGroup();
+}
+
+void TodoService::saveSummarySettings() const
+{
+    QSettings settings;
+    settings.beginGroup(kSummarySettingsGroup);
+    settings.setValue(QStringLiteral("exportPath"), m_summaryExportPath);
+    settings.setValue(QStringLiteral("autoRefresh"), m_summaryAutoRefresh);
+    settings.setValue(QStringLiteral("lastExportDate"), m_summaryLastExportDate.toString(Qt::ISODate));
+    settings.setValue(QStringLiteral("lastExportedAt"),
+                      m_summaryLastExportedAt.toLocalTime().toString(Qt::ISODateWithMs));
+    settings.endGroup();
+}
+
+QString TodoService::normalizeSummaryExportPath(const QString& path) const
+{
+    QString normalizedPath = path.trimmed();
+    if (normalizedPath.isEmpty()) {
+        normalizedPath = defaultSummaryExportPath();
+    }
+
+    if (normalizedPath.startsWith(QStringLiteral("file:"), Qt::CaseInsensitive)) {
+        const QUrl url(normalizedPath);
+        if (url.isLocalFile()) {
+            normalizedPath = url.toLocalFile();
+        }
+    }
+
+    normalizedPath = QDir::fromNativeSeparators(normalizedPath);
+
+    QFileInfo fileInfo(normalizedPath);
+    if (fileInfo.isRelative()) {
+        normalizedPath = QDir(QCoreApplication::applicationDirPath()).filePath(normalizedPath);
+        fileInfo.setFile(normalizedPath);
+    }
+
+    const bool alreadySummaryFile = fileInfo.fileName() == kSummaryFileName;
+    if (!alreadySummaryFile) {
+        normalizedPath = QDir(normalizedPath).filePath(kSummaryFileName);
+        fileInfo.setFile(normalizedPath);
+    }
+
+    return QDir::cleanPath(normalizedPath);
+}
+
+bool TodoService::writeTaskSummaryFile(const QString& filePath)
+{
+    const QDate today = QDate::currentDate();
+    const QDateTime now = QDateTime::currentDateTime();
+
+    int totalCount = 0;
+    int pendingCount = 0;
+    int inProgressCount = 0;
+    int completedCount = 0;
+    int cancelledCount = 0;
+    int scheduledCount = 0;
+    int dueTodayCount = 0;
+    int overdueCount = 0;
+    int completedTodayCount = 0;
+    int highPriorityCount = 0;
+    int flaggedCount = 0;
+
+    QJsonObject byStatus;
+    byStatus.insert(QStringLiteral("pending"), 0);
+    byStatus.insert(QStringLiteral("in_progress"), 0);
+    byStatus.insert(QStringLiteral("completed"), 0);
+    byStatus.insert(QStringLiteral("cancelled"), 0);
+
+    QJsonObject byPriority;
+    byPriority.insert(QStringLiteral("low"), 0);
+    byPriority.insert(QStringLiteral("medium"), 0);
+    byPriority.insert(QStringLiteral("high"), 0);
+    byPriority.insert(QStringLiteral("urgent"), 0);
+
+    QMap<QString, QJsonObject> tagStats;
+    QJsonArray allTasks;
+    QJsonArray openTasks;
+    QJsonArray overdueTasks;
+    QJsonArray dueTodayTasks;
+    QJsonArray completedTodayTasks;
+    QJsonArray flaggedTasks;
+    QJsonArray highPriorityTasks;
+
+    auto incrementJsonCount = [](QJsonObject& object, const QString& key) {
+        object.insert(key, object.value(key).toInt() + 1);
+    };
+
+    auto taskToJson = [this, &now](Todo* todo) {
+        QJsonObject task;
+        const bool hasDueDate = todo->dueDate().isValid() && !todo->dueDate().isNull();
+        const QDateTime dueDate = hasDueDate ? todo->dueDate().toLocalTime() : QDateTime();
+        const bool isOpen = todo->status() != Todo::TodoStatus::Completed
+                            && todo->status() != Todo::TodoStatus::Cancelled;
+
+        task.insert(QStringLiteral("id"), todo->id().toString(QUuid::WithoutBraces));
+        task.insert(QStringLiteral("title"), todo->title());
+        task.insert(QStringLiteral("description"), todo->description());
+        task.insert(QStringLiteral("status"), statusKey(todo->status()));
+        task.insert(QStringLiteral("status_label"), statusLabel(todo->status()));
+        task.insert(QStringLiteral("priority"), priorityKey(todo->priority()));
+        task.insert(QStringLiteral("priority_label"), priorityLabel(todo->priority()));
+        task.insert(QStringLiteral("is_open"), isOpen);
+        task.insert(QStringLiteral("is_flagged"), todo->tags().contains(kFlagTag));
+        task.insert(QStringLiteral("is_overdue"), isOpen && hasDueDate && dueDate < now);
+        task.insert(QStringLiteral("due_date"), dateTimeToIsoString(todo->dueDate()));
+        task.insert(QStringLiteral("created_at"), dateTimeToIsoString(todo->createdAt()));
+        task.insert(QStringLiteral("updated_at"), dateTimeToIsoString(todo->updatedAt()));
+        task.insert(QStringLiteral("completed_at"), dateTimeToIsoString(todo->completedAt()));
+        task.insert(QStringLiteral("tags"), tagsToJsonArray(todo->tags()));
+
+        if (!todo->categoryId().isNull()) {
+            if (Category* category = findCategory(todo->categoryId())) {
+                task.insert(QStringLiteral("category"), category->name());
+                task.insert(QStringLiteral("category_id"), category->id().toString(QUuid::WithoutBraces));
+            }
+        }
+
+        return task;
+    };
+
+    for (Todo* todo : m_todos) {
+        if (!todo) {
+            continue;
+        }
+
+        ++totalCount;
+        const bool isCompleted = todo->status() == Todo::TodoStatus::Completed;
+        const bool isCancelled = todo->status() == Todo::TodoStatus::Cancelled;
+        const bool isOpen = !isCompleted && !isCancelled;
+        const bool hasDueDate = todo->dueDate().isValid() && !todo->dueDate().isNull();
+        const QDateTime dueDate = hasDueDate ? todo->dueDate().toLocalTime() : QDateTime();
+        const bool isDueToday = isOpen && hasDueDate && dueDate.date() == today;
+        const bool isOverdue = isOpen && hasDueDate && dueDate < now;
+        const bool completedToday = isCompleted
+                                    && todo->completedAt().isValid()
+                                    && todo->completedAt().toLocalTime().date() == today;
+        const bool isHighPriority = static_cast<int>(todo->priority()) >= static_cast<int>(Todo::Priority::High);
+        const bool isFlagged = todo->tags().contains(kFlagTag);
+
+        switch (todo->status()) {
+        case Todo::TodoStatus::Pending:
+            ++pendingCount;
+            break;
+        case Todo::TodoStatus::InProgress:
+            ++inProgressCount;
+            break;
+        case Todo::TodoStatus::Completed:
+            ++completedCount;
+            break;
+        case Todo::TodoStatus::Cancelled:
+            ++cancelledCount;
+            break;
+        }
+
+        if (hasDueDate) {
+            ++scheduledCount;
+        }
+        if (isDueToday) {
+            ++dueTodayCount;
+        }
+        if (isOverdue) {
+            ++overdueCount;
+        }
+        if (completedToday) {
+            ++completedTodayCount;
+        }
+        if (isOpen && isHighPriority) {
+            ++highPriorityCount;
+        }
+        if (isOpen && isFlagged) {
+            ++flaggedCount;
+        }
+
+        incrementJsonCount(byStatus, statusKey(todo->status()));
+        incrementJsonCount(byPriority, priorityKey(todo->priority()));
+
+        for (const QString& tag : todo->tags()) {
+            QJsonObject tagObject = tagStats.value(tag);
+            tagObject.insert(QStringLiteral("tag"), tag);
+            tagObject.insert(QStringLiteral("total"), tagObject.value(QStringLiteral("total")).toInt() + 1);
+            if (isOpen) {
+                tagObject.insert(QStringLiteral("open"), tagObject.value(QStringLiteral("open")).toInt() + 1);
+            }
+            if (isCompleted) {
+                tagObject.insert(QStringLiteral("completed"), tagObject.value(QStringLiteral("completed")).toInt() + 1);
+            }
+            tagStats.insert(tag, tagObject);
+        }
+
+        const QJsonObject task = taskToJson(todo);
+        allTasks.append(task);
+        if (isOpen) {
+            openTasks.append(task);
+        }
+        if (isOverdue) {
+            overdueTasks.append(task);
+        }
+        if (isDueToday) {
+            dueTodayTasks.append(task);
+        }
+        if (completedToday) {
+            completedTodayTasks.append(task);
+        }
+        if (isOpen && isFlagged) {
+            flaggedTasks.append(task);
+        }
+        if (isOpen && isHighPriority) {
+            highPriorityTasks.append(task);
+        }
+    }
+
+    QJsonArray tagSummary;
+    for (auto it = tagStats.cbegin(); it != tagStats.cend(); ++it) {
+        tagSummary.append(it.value());
+    }
+
+    QJsonObject counts;
+    counts.insert(QStringLiteral("total"), totalCount);
+    counts.insert(QStringLiteral("open"), pendingCount + inProgressCount);
+    counts.insert(QStringLiteral("pending"), pendingCount);
+    counts.insert(QStringLiteral("in_progress"), inProgressCount);
+    counts.insert(QStringLiteral("completed"), completedCount);
+    counts.insert(QStringLiteral("cancelled"), cancelledCount);
+    counts.insert(QStringLiteral("scheduled"), scheduledCount);
+    counts.insert(QStringLiteral("due_today"), dueTodayCount);
+    counts.insert(QStringLiteral("overdue"), overdueCount);
+    counts.insert(QStringLiteral("completed_today"), completedTodayCount);
+    counts.insert(QStringLiteral("high_priority_open"), highPriorityCount);
+    counts.insert(QStringLiteral("flagged_open"), flaggedCount);
+    counts.insert(QStringLiteral("completion_rate"), totalCount > 0
+                  ? static_cast<double>(completedCount) / static_cast<double>(totalCount)
+                  : 0.0);
+
+    QJsonObject lists;
+    lists.insert(QStringLiteral("open"), openTasks);
+    lists.insert(QStringLiteral("overdue"), overdueTasks);
+    lists.insert(QStringLiteral("due_today"), dueTodayTasks);
+    lists.insert(QStringLiteral("completed_today"), completedTodayTasks);
+    lists.insert(QStringLiteral("flagged"), flaggedTasks);
+    lists.insert(QStringLiteral("high_priority"), highPriorityTasks);
+
+    QJsonObject root;
+    root.insert(QStringLiteral("schema_version"), 1);
+    root.insert(QStringLiteral("generated_at"), now.toString(Qt::ISODateWithMs));
+    root.insert(QStringLiteral("summary_date"), today.toString(Qt::ISODate));
+    root.insert(QStringLiteral("counts"), counts);
+    root.insert(QStringLiteral("by_status"), byStatus);
+    root.insert(QStringLiteral("by_priority"), byPriority);
+    root.insert(QStringLiteral("by_tag"), tagSummary);
+    root.insert(QStringLiteral("lists"), lists);
+    root.insert(QStringLiteral("all_tasks"), allTasks);
+
+    const QFileInfo outputInfo(filePath);
+    QDir outputDir = outputInfo.absoluteDir();
+    if (!outputDir.exists() && !outputDir.mkpath(QStringLiteral("."))) {
+        m_summaryLastExportError = QStringLiteral("无法创建保存目录：%1").arg(outputDir.absolutePath());
+        emit summaryLastExportErrorChanged();
+        emit errorOccurred(m_summaryLastExportError);
+        return false;
+    }
+
+    QSaveFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        m_summaryLastExportError = QStringLiteral("无法写入整理文件：%1").arg(file.errorString());
+        emit summaryLastExportErrorChanged();
+        emit errorOccurred(m_summaryLastExportError);
+        return false;
+    }
+
+    const QByteArray payload = QJsonDocument(root).toJson(QJsonDocument::Indented);
+    if (file.write(payload) != payload.size()) {
+        m_summaryLastExportError = QStringLiteral("整理文件写入不完整：%1").arg(file.errorString());
+        emit summaryLastExportErrorChanged();
+        emit errorOccurred(m_summaryLastExportError);
+        file.cancelWriting();
+        return false;
+    }
+
+    if (!file.commit()) {
+        m_summaryLastExportError = QStringLiteral("保存整理文件失败：%1").arg(file.errorString());
+        emit summaryLastExportErrorChanged();
+        emit errorOccurred(m_summaryLastExportError);
+        return false;
+    }
+
+    m_summaryLastExportedAt = now;
+    m_summaryLastExportDate = today;
+    if (!m_summaryLastExportError.isEmpty()) {
+        m_summaryLastExportError.clear();
+        emit summaryLastExportErrorChanged();
+    }
+    saveSummarySettings();
+    emit summaryLastExportedAtChanged();
+    emit summaryExported(filePath);
+
+    return true;
+}
+
+void TodoService::runDailySummaryRefresh()
+{
+    if (!m_summaryAutoRefresh) {
+        return;
+    }
+
+    if (m_summaryLastExportDate == QDate::currentDate()) {
+        scheduleNextDailySummaryRefresh();
+        return;
+    }
+
+    if (writeTaskSummaryFile(m_summaryExportPath)) {
+        scheduleNextDailySummaryRefresh();
+        return;
+    }
+
+    if (m_dailySummaryTimer) {
+        m_dailySummaryTimer->setSingleShot(true);
+        m_dailySummaryTimer->start(60 * 60 * 1000);
+    }
+}
+
+void TodoService::scheduleNextDailySummaryRefresh()
+{
+    if (!m_dailySummaryTimer || !m_summaryAutoRefresh) {
+        return;
+    }
+
+    const QDateTime now = QDateTime::currentDateTime();
+    const QDateTime nextRun(QDate::currentDate().addDays(1), QTime(0, 5));
+    qint64 intervalMs = now.msecsTo(nextRun);
+    if (intervalMs < 60 * 1000) {
+        intervalMs = 60 * 1000;
+    }
+    intervalMs = std::min<qint64>(intervalMs, std::numeric_limits<int>::max());
+
+    m_dailySummaryTimer->setSingleShot(true);
+    m_dailySummaryTimer->start(static_cast<int>(intervalMs));
 }

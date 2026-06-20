@@ -9,6 +9,10 @@ ColumnLayout {
     anchors.margins: 8
     spacing: 6
 
+    function hasValidDate(value) {
+        return value && typeof value.getTime === "function" && !isNaN(value.getTime())
+    }
+
     // -------------------------------------------------------------------------
     // Header with count
     // -------------------------------------------------------------------------
@@ -87,7 +91,7 @@ ColumnLayout {
             border.width: 1
 
             property bool isOverdue: {
-                if (model.dueDate && model.dueDate.isValid && model.dueDate.toString().length > 0) {
+                if (widgetView.hasValidDate(model.dueDate)) {
                     return model.dueDate < new Date()
                 }
                 return false
@@ -153,13 +157,13 @@ ColumnLayout {
                         Layout.fillWidth: true
                         maximumLineCount: 2
                         elide: Text.ElideRight
-                        style: (model.status === Todo.Completed) ? Text.Strikethrough : Text.Normal
+                        font.strikeout: model.status === Todo.Completed
                     }
 
                     // Due date
                     Row {
                         spacing: 3
-                        visible: model.dueDate && model.dueDate.isValid && model.dueDate.toString().length > 0
+                        visible: widgetView.hasValidDate(model.dueDate)
 
                         Text {
                             text: "📅"
@@ -168,7 +172,7 @@ ColumnLayout {
 
                         Text {
                             text: {
-                                if (model.dueDate && model.dueDate.isValid) {
+                                if (widgetView.hasValidDate(model.dueDate)) {
                                     return model.dueDate.toLocaleDateString(Qt.locale(), "MM-dd hh:mm")
                                 }
                                 return ""
