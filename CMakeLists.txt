@@ -23,6 +23,7 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     QuickControls2
     Sql
     Charts
+    Svg
     Network
     Widgets
 )
@@ -116,6 +117,13 @@ if(APPLE)
         PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
     target_sources(Todolist PRIVATE ${TODOLIST_APP_ICON_MACOS})
     set_target_properties(Todolist PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_BUNDLE_NAME "Todolist"
+        MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
+        MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
+        MACOSX_BUNDLE_LONG_VERSION_STRING "Todolist Version ${PROJECT_VERSION}"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.todolist.app"
+        MACOSX_BUNDLE_COPYRIGHT "Copyright 2026 Todolist Team"
         MACOSX_BUNDLE_ICON_FILE "app.icns")
 endif()
 
@@ -131,6 +139,7 @@ target_link_libraries(Todolist PRIVATE
     Qt6::QuickControls2
     Qt6::Sql
     Qt6::Charts
+    Qt6::Svg
     Qt6::Network
     Qt6::Widgets
     nlohmann_json::nlohmann_json
@@ -154,6 +163,7 @@ install(TARGETS Todolist
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
+install(FILES README_INSTALL.md DESTINATION .)
 
 # CPack configuration for packaging
 set(CPACK_PACKAGE_NAME "Todolist")
@@ -174,15 +184,7 @@ if(WIN32)
 elseif(APPLE)
     set(CPACK_GENERATOR "DragNDrop")
     set(CPACK_DMG_VOLUME_NAME "Todolist ${PROJECT_VERSION}")
-    set(CPACK_DMG_DS_STORE_SETUP_SCRIPT "${CMAKE_SOURCE_DIR}/assets/dmg_setup.scpt")
     set(CPACK_PACKAGE_ICON "${CMAKE_SOURCE_DIR}/assets/icons/app.icns")
-    set(MACOSX_BUNDLE_BUNDLE_NAME "Todolist")
-    set(MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION})
-    set(MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION})
-    set(MACOSX_BUNDLE_LONG_VERSION_STRING "Todolist Version ${PROJECT_VERSION}")
-    set(MACOSX_BUNDLE_ICON_FILE "app.icns")
-    set(MACOSX_BUNDLE_GUI_IDENTIFIER "com.todolist.app")
-    set(MACOSX_BUNDLE_COPYRIGHT "Copyright 2026 Todolist Team")
 endif()
 
 include(CPack)
