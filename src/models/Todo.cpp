@@ -86,6 +86,19 @@ void Todo::setStatus(TodoStatus status)
     }
 }
 
+QDateTime Todo::startDate() const
+{
+    return m_startDate;
+}
+
+void Todo::setStartDate(const QDateTime& startDate)
+{
+    if (m_startDate != startDate) {
+        m_startDate = startDate;
+        emit startDateChanged();
+    }
+}
+
 QDateTime Todo::dueDate() const
 {
     return m_dueDate;
@@ -213,6 +226,7 @@ QString Todo::calculateHash() const
     QString content = m_title + m_description 
         + QString::number(static_cast<int>(m_priority))
         + QString::number(static_cast<int>(m_status))
+        + (m_startDate.isValid() ? m_startDate.toString(Qt::ISODate) : QString())
         + (m_dueDate.isValid() ? m_dueDate.toString(Qt::ISODate) : QString());
     
     QByteArray hash = QCryptographicHash::hash(

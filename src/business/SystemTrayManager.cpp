@@ -6,8 +6,6 @@
 
 #include <QApplication>
 #include <QIcon>
-#include <QPixmap>
-#include <QPainter>
 #include <QDateTime>
 #include <QKeySequence>
 #include <QDebug>
@@ -233,23 +231,7 @@ void SystemTrayManager::createTrayIcon()
     }
 
     m_trayIcon = new QSystemTrayIcon(this);
-
-    // Create a simple icon programmatically
-    QPixmap pixmap(32, 32);
-    pixmap.fill(Qt::transparent);
-    QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing);
-
-    // Draw a checkmark icon
-    painter.setBrush(QBrush(QColor("#3B82F6")));
-    painter.setPen(Qt::NoPen);
-    painter.drawEllipse(2, 2, 28, 28);
-
-    painter.setPen(QPen(Qt::white, 3));
-    painter.drawLine(8, 16, 14, 22);
-    painter.drawLine(14, 22, 24, 10);
-
-    m_trayIcon->setIcon(QIcon(pixmap));
+    m_trayIcon->setIcon(QIcon(QStringLiteral(":/icons/app.png")));
     m_trayIcon->setContextMenu(m_trayMenu);
     m_trayIcon->setToolTip(m_toolTip);
 

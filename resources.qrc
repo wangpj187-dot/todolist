@@ -5,11 +5,15 @@
         <file alias="components/qmldir">src/qml/components/qmldir</file>
         <file alias="components/TodoItem.qml">src/qml/components/TodoItem.qml</file>
         <file alias="components/TodoForm.qml">src/qml/components/TodoForm.qml</file>
+        <file alias="components/CalendarTaskView.qml">src/qml/components/CalendarTaskView.qml</file>
         <file alias="components/DateReviewDialog.qml">src/qml/components/DateReviewDialog.qml</file>
         <file alias="components/GitHubSettings.qml">src/qml/components/GitHubSettings.qml</file>
         <file alias="components/SyncStatusPanel.qml">src/qml/components/SyncStatusPanel.qml</file>
         <file alias="components/ConflictResolutionDialog.qml">src/qml/components/ConflictResolutionDialog.qml</file>
         <file alias="components/WidgetWindow.qml">src/qml/components/WidgetWindow.qml</file>
         <file alias="components/WidgetView.qml">src/qml/components/WidgetView.qml</file>
+    </qresource>
+    <qresource prefix="/icons">
+        <file alias="app.png">assets/icons/app.png</file>
     </qresource>
 </RCC>

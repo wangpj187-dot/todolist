@@ -70,6 +70,14 @@ json JsonSerializer::todoToJson(const Todo* todo) const
         j["category_id"] = nullptr;
     }
 
+    // start_date - handle null
+    QString startDateStr = dateTimeToString(todo->startDate());
+    if (!startDateStr.isEmpty()) {
+        j["start_date"] = startDateStr.toStdString();
+    } else {
+        j["start_date"] = nullptr;
+    }
+
     // due_date - handle null
     QString dueDateStr = dateTimeToString(todo->dueDate());
     if (!dueDateStr.isEmpty()) {
@@ -113,6 +121,11 @@ Todo* JsonSerializer::jsonToTodo(const json& j) const
     // category_id - handle null
     if (!j["category_id"].is_null()) {
         todo->setCategoryId(stringToUuid(QString::fromStdString(j["category_id"].get<std::string>())));
+    }
+
+    // start_date - handle null
+    if (j.contains("start_date") && !j["start_date"].is_null()) {
+        todo->setStartDate(stringToDateTime(QString::fromStdString(j["start_date"].get<std::string>())));
     }
 
     // due_date - handle null
@@ -222,8 +235,8 @@ Config* JsonSerializer::jsonToConfig(const json& j) const
     config->setReminderAdvanceMinutes(j.value("reminder_advance_minutes", 60));
     config->setWindowX(j.value("window_x", 0));
     config->setWindowY(j.value("window_y", 0));
-    config->setWindowWidth(j.value("window_width", 400));
-    config->setWindowHeight(j.value("window_height", 600));
+    config->setWindowWidth(j.value("window_width", 490));
+    config->setWindowHeight(j.value("window_height", 340));
     config->setCreatedAt(stringToDateTime(QString::fromStdString(j.value("created_at", std::string()))));
     config->setUpdatedAt(stringToDateTime(QString::fromStdString(j.value("updated_at", std::string()))));
 
@@ -629,6 +642,7 @@ bool JsonSerializer::validateTodoJsonObject(const json& j) const
     // Check optional fields have correct types when present
     if (j.contains("description") && !j["description"].is_string()) return false;
     if (j.contains("category_id") && !j["category_id"].is_null() && !j["category_id"].is_string()) return false;
+    if (j.contains("start_date") && !j["start_date"].is_null() && !j["start_date"].is_string()) return false;
     if (j.contains("due_date") && !j["due_date"].is_null() && !j["due_date"].is_string()) return false;
     if (j.contains("completed_at") && !j["completed_at"].is_null() && !j["completed_at"].is_string()) return false;
     if (j.contains("tags") && !j["tags"].is_array()) return false;

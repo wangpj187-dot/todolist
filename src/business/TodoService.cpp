@@ -106,7 +106,15 @@ bool belongsToTodaySurface(Todo* todo, const QDate& today)
         return false;
     }
 
+    const bool hasStartDate = todo->startDate().isValid() && !todo->startDate().isNull();
     const bool hasDueDate = todo->dueDate().isValid() && !todo->dueDate().isNull();
+    if (hasStartDate && hasDueDate) {
+        return todo->startDate().toLocalTime().date() <= today
+               && todo->dueDate().toLocalTime().date() >= today;
+    }
+    if (hasStartDate) {
+        return todo->startDate().toLocalTime().date() == today;
+    }
     if (hasDueDate) {
         return todo->dueDate().toLocalTime().date() == today;
     }
@@ -168,6 +176,42 @@ QDateTime dateTimeFromVariant(const QVariant& value)
         dateTime = QDateTime::fromString(text, QStringLiteral("yyyy-MM-dd HH:mm"));
     }
     return dateTime;
+}
+
+QDateTime startOfLocalDay(const QDate& date)
+{
+    return QDateTime(date, QTime(0, 0, 0));
+}
+
+QDateTime endOfLocalDay(const QDate& date)
+{
+    return QDateTime(date, QTime(23, 59, 59));
+}
+
+QPair<QDateTime, QDateTime> normalizedDateRange(const QVariant& startValue, const QVariant& endValue)
+{
+    const QDateTime rawStart = dateTimeFromVariant(startValue);
+    const QDateTime rawEnd = dateTimeFromVariant(endValue);
+    const bool hasStart = rawStart.isValid() && !rawStart.isNull();
+    const bool hasEnd = rawEnd.isValid() && !rawEnd.isNull();
+
+    QDate startDate = hasStart ? rawStart.toLocalTime().date() : QDate();
+    QDate endDate = hasEnd ? rawEnd.toLocalTime().date() : QDate();
+
+    if (!startDate.isValid() && !endDate.isValid()) {
+        startDate = QDate::currentDate();
+        endDate = startDate;
+    } else if (!startDate.isValid()) {
+        startDate = endDate;
+    } else if (!endDate.isValid()) {
+        endDate = startDate;
+    }
+
+    if (endDate < startDate) {
+        std::swap(startDate, endDate);
+    }
+
+    return {startOfLocalDay(startDate), endOfLocalDay(endDate)};
 }
 
 QDate dateFromVariant(const QVariant& value)
@@ -319,7 +363,9 @@ QUuid TodoService::createTodo(const QString& title,
     todo->setDescription(description);
     todo->setPriority(priority);
     todo->setCategoryId(categoryId);
-    todo->setDueDate(dueDate);
+    const auto dateRange = normalizedDateRange(QVariant(), dueDate);
+    todo->setStartDate(dateRange.first);
+    todo->setDueDate(dateRange.second);
     todo->setStatus(Todo::TodoStatus::Pending);
     todo->setCreatedAt(QDateTime::currentDateTimeUtc());
     todo->setUpdatedAt(QDateTime::currentDateTimeUtc());
@@ -372,7 +418,9 @@ QUuid TodoService::createTodoWithId(const QUuid& id,
     todo->setDescription(description);
     todo->setPriority(priority);
     todo->setCategoryId(categoryId);
-    todo->setDueDate(dueDate);
+    const auto dateRange = normalizedDateRange(QVariant(), dueDate);
+    todo->setStartDate(dateRange.first);
+    todo->setDueDate(dateRange.second);
     todo->setStatus(status);
     todo->setSyncHash(syncHash);
     todo->setSyncStatus(Todo::SyncStatus::Synced);
@@ -429,7 +477,9 @@ bool TodoService::updateTodo(const QUuid& todoId,
     todo->setDescription(description);
     todo->setPriority(priority);
     todo->setCategoryId(categoryId);
-    todo->setDueDate(dueDate);
+    const auto dateRange = normalizedDateRange(todo->startDate(), dueDate);
+    todo->setStartDate(dateRange.first);
+    todo->setDueDate(dateRange.second);
     todo->setStatus(status);
     if (status == Todo::TodoStatus::Completed && previousStatus != Todo::TodoStatus::Completed) {
         todo->setCompletedAt(QDateTime::currentDateTimeUtc());
@@ -509,6 +559,42 @@ QUuid TodoService::createTodoFromQmlWithTags(const QString& title,
     return id;
 }
 
+QUuid TodoService::createTodoFromQmlWithTagsAndRange(const QString& title,
+                                                     const QString& description,
+                                                     int priority,
+                                                     const QVariant& categoryId,
+                                                     const QVariant& startDate,
+                                                     const QVariant& dueDate,
+                                                     const QVariant& tags)
+{
+    const auto dateRange = normalizedDateRange(startDate, dueDate);
+    const QUuid id = createTodo(title,
+                                description,
+                                static_cast<Todo::Priority>(priority),
+                                uuidFromVariant(categoryId),
+                                dateRange.second);
+
+    if (!id.isNull()) {
+        Todo* todo = findTodo(id);
+        if (todo) {
+            todo->setStartDate(dateRange.first);
+            todo->setDueDate(dateRange.second);
+            try {
+                if (!m_db->updateTodo(todo)) {
+                    emit errorOccurred(QStringLiteral("Failed to update todo date range"));
+                    return QUuid();
+                }
+            } catch (const DatabaseException& e) {
+                emit errorOccurred(QString::fromStdString(e.what()));
+                return QUuid();
+            }
+        }
+        updateTodoTagsFromQml(id, tags);
+    }
+
+    return id;
+}
+
 bool TodoService::updateTodoFromQmlWithTags(const QVariant& todoId,
                                             const QString& title,
                                             const QString& description,
@@ -525,6 +611,39 @@ bool TodoService::updateTodoFromQmlWithTags(const QVariant& todoId,
                     static_cast<Todo::Priority>(priority),
                     uuidFromVariant(categoryId),
                     dateTimeFromVariant(dueDate),
+                    static_cast<Todo::TodoStatus>(status))) {
+        return false;
+    }
+
+    return updateTodoTagsFromQml(id, tags);
+}
+
+bool TodoService::updateTodoFromQmlWithTagsAndRange(const QVariant& todoId,
+                                                    const QString& title,
+                                                    const QString& description,
+                                                    int priority,
+                                                    const QVariant& categoryId,
+                                                    const QVariant& startDate,
+                                                    const QVariant& dueDate,
+                                                    int status,
+                                                    const QVariant& tags)
+{
+    const QUuid id = uuidFromVariant(todoId);
+    Todo* todo = findTodo(id);
+    if (!todo) {
+        emit errorOccurred(QStringLiteral("Todo not found"));
+        return false;
+    }
+
+    const auto dateRange = normalizedDateRange(startDate, dueDate);
+    todo->setStartDate(dateRange.first);
+
+    if (!updateTodo(id,
+                    title,
+                    description,
+                    static_cast<Todo::Priority>(priority),
+                    uuidFromVariant(categoryId),
+                    dateRange.second,
                     static_cast<Todo::TodoStatus>(status))) {
         return false;
     }
@@ -639,7 +758,18 @@ bool TodoService::setTodoPriorityFromQml(const QVariant& todoId, int priority)
 
 QVariantList TodoService::getTodosForDateFromQml(const QVariant& date) const
 {
-    const QDate targetDate = dateFromVariant(date);
+    return getTodosForDateRangeFromQml(date, date);
+}
+
+QVariantList TodoService::getTodosForDateRangeFromQml(const QVariant& startDate,
+                                                      const QVariant& endDate) const
+{
+    QDate rangeStart = dateFromVariant(startDate);
+    QDate rangeEnd = dateFromVariant(endDate);
+    if (rangeEnd < rangeStart) {
+        std::swap(rangeStart, rangeEnd);
+    }
+
     QList<Todo*> matchedTodos;
 
     for (Todo* todo : m_todos) {
@@ -647,14 +777,26 @@ QVariantList TodoService::getTodosForDateFromQml(const QVariant& date) const
             continue;
         }
 
+        const bool hasStartDate = todo->startDate().isValid() && !todo->startDate().isNull();
         const bool hasDueDate = todo->dueDate().isValid() && !todo->dueDate().isNull();
         const bool hasCompletedAt = todo->completedAt().isValid() && !todo->completedAt().isNull();
-        const bool dueOnDate = hasDueDate && todo->dueDate().toLocalTime().date() == targetDate;
-        const bool completedOnDate = hasCompletedAt && todo->completedAt().toLocalTime().date() == targetDate;
-        const bool createdOnDate = !hasDueDate && todo->createdAt().isValid()
-                                   && todo->createdAt().toLocalTime().date() == targetDate;
+        const bool scheduledOnDate = hasStartDate && hasDueDate
+                                     && todo->startDate().toLocalTime().date() <= rangeEnd
+                                     && todo->dueDate().toLocalTime().date() >= rangeStart;
+        const bool startOnDate = hasStartDate
+                                 && todo->startDate().toLocalTime().date() >= rangeStart
+                                 && todo->startDate().toLocalTime().date() <= rangeEnd;
+        const bool dueOnDate = hasDueDate
+                               && todo->dueDate().toLocalTime().date() >= rangeStart
+                               && todo->dueDate().toLocalTime().date() <= rangeEnd;
+        const bool completedOnDate = hasCompletedAt
+                                     && todo->completedAt().toLocalTime().date() >= rangeStart
+                                     && todo->completedAt().toLocalTime().date() <= rangeEnd;
+        const bool createdOnDate = !hasStartDate && !hasDueDate && todo->createdAt().isValid()
+                                   && todo->createdAt().toLocalTime().date() >= rangeStart
+                                   && todo->createdAt().toLocalTime().date() <= rangeEnd;
 
-        if (dueOnDate || completedOnDate || createdOnDate) {
+        if (scheduledOnDate || startOnDate || dueOnDate || completedOnDate || createdOnDate) {
             matchedTodos.append(todo);
         }
     }
@@ -686,14 +828,26 @@ QVariantList TodoService::getTodosForDateFromQml(const QVariant& date) const
     const QDateTime now = QDateTime::currentDateTime();
 
     for (Todo* todo : matchedTodos) {
+        const bool hasStartDate = todo->startDate().isValid() && !todo->startDate().isNull();
         const bool hasDueDate = todo->dueDate().isValid() && !todo->dueDate().isNull();
         const bool hasCompletedAt = todo->completedAt().isValid() && !todo->completedAt().isNull();
         const bool isOpen = todo->status() != Todo::TodoStatus::Completed
                             && todo->status() != Todo::TodoStatus::Cancelled;
-        const bool dueOnDate = hasDueDate && todo->dueDate().toLocalTime().date() == targetDate;
-        const bool completedOnDate = hasCompletedAt && todo->completedAt().toLocalTime().date() == targetDate;
-        const bool createdOnDate = !hasDueDate && todo->createdAt().isValid()
-                                   && todo->createdAt().toLocalTime().date() == targetDate;
+        const bool scheduledOnDate = hasStartDate && hasDueDate
+                                     && todo->startDate().toLocalTime().date() <= rangeEnd
+                                     && todo->dueDate().toLocalTime().date() >= rangeStart;
+        const bool startOnDate = hasStartDate
+                                 && todo->startDate().toLocalTime().date() >= rangeStart
+                                 && todo->startDate().toLocalTime().date() <= rangeEnd;
+        const bool dueOnDate = hasDueDate
+                               && todo->dueDate().toLocalTime().date() >= rangeStart
+                               && todo->dueDate().toLocalTime().date() <= rangeEnd;
+        const bool completedOnDate = hasCompletedAt
+                                     && todo->completedAt().toLocalTime().date() >= rangeStart
+                                     && todo->completedAt().toLocalTime().date() <= rangeEnd;
+        const bool createdOnDate = !hasStartDate && !hasDueDate && todo->createdAt().isValid()
+                                   && todo->createdAt().toLocalTime().date() >= rangeStart
+                                   && todo->createdAt().toLocalTime().date() <= rangeEnd;
 
         QStringList tagList;
         for (const QString& tag : todo->tags()) {
@@ -701,7 +855,12 @@ QVariantList TodoService::getTodosForDateFromQml(const QVariant& date) const
         }
 
         QStringList relationLabels;
-        if (dueOnDate) {
+        if (scheduledOnDate) {
+            relationLabels.append(QStringLiteral("期间"));
+        } else if (startOnDate) {
+            relationLabels.append(QStringLiteral("开始"));
+        }
+        if (dueOnDate && !scheduledOnDate) {
             relationLabels.append(QStringLiteral("截止"));
         }
         if (completedOnDate) {
@@ -720,6 +879,7 @@ QVariantList TodoService::getTodosForDateFromQml(const QVariant& date) const
         map.insert(QStringLiteral("categoryId"), todo->categoryId().isNull()
                    ? QString()
                    : todo->categoryId().toString(QUuid::WithoutBraces));
+        map.insert(QStringLiteral("startDate"), todo->startDate());
         map.insert(QStringLiteral("dueDate"), todo->dueDate());
         map.insert(QStringLiteral("createdAt"), todo->createdAt());
         map.insert(QStringLiteral("updatedAt"), todo->updatedAt());
@@ -732,6 +892,8 @@ QVariantList TodoService::getTodosForDateFromQml(const QVariant& date) const
         map.insert(QStringLiteral("isCancelled"), todo->status() == Todo::TodoStatus::Cancelled);
         map.insert(QStringLiteral("isOverdue"), isOpen && hasDueDate && todo->dueDate().toLocalTime() < now);
         map.insert(QStringLiteral("isFlagged"), todo->tags().contains(kFlagTag));
+        map.insert(QStringLiteral("scheduledOnDate"), scheduledOnDate);
+        map.insert(QStringLiteral("startOnDate"), startOnDate);
         map.insert(QStringLiteral("dueOnDate"), dueOnDate);
         map.insert(QStringLiteral("completedOnDate"), completedOnDate);
         map.insert(QStringLiteral("createdOnDate"), createdOnDate);
@@ -1213,6 +1375,7 @@ QList<Todo*> TodoService::getFilteredTodos() const
     for (Todo* todo : result) {
         const bool isOpen = todo->status() != Todo::TodoStatus::Completed
                             && todo->status() != Todo::TodoStatus::Cancelled;
+        const bool hasStartDate = todo->startDate().isValid() && !todo->startDate().isNull();
         const bool hasDueDate = todo->dueDate().isValid() && !todo->dueDate().isNull();
         const bool matchesTag = m_filterTag.isEmpty() || todo->tags().contains(m_filterTag);
 
@@ -1230,7 +1393,7 @@ QList<Todo*> TodoService::getFilteredTodos() const
             }
             break;
         case 2:  // Scheduled
-            if (isOpen && hasDueDate) {
+            if (isOpen && (hasStartDate || hasDueDate)) {
                 filteredResult.append(todo);
             }
             break;
@@ -1713,6 +1876,7 @@ bool TodoService::writeTaskSummaryFile(const QString& filePath)
 
     auto taskToJson = [this, &now](Todo* todo) {
         QJsonObject task;
+        const bool hasStartDate = todo->startDate().isValid() && !todo->startDate().isNull();
         const bool hasDueDate = todo->dueDate().isValid() && !todo->dueDate().isNull();
         const QDateTime dueDate = hasDueDate ? todo->dueDate().toLocalTime() : QDateTime();
         const bool isOpen = todo->status() != Todo::TodoStatus::Completed
@@ -1728,7 +1892,9 @@ bool TodoService::writeTaskSummaryFile(const QString& filePath)
         task.insert(QStringLiteral("is_open"), isOpen);
         task.insert(QStringLiteral("is_flagged"), todo->tags().contains(kFlagTag));
         task.insert(QStringLiteral("is_overdue"), isOpen && hasDueDate && dueDate < now);
+        task.insert(QStringLiteral("start_date"), dateTimeToIsoString(todo->startDate()));
         task.insert(QStringLiteral("due_date"), dateTimeToIsoString(todo->dueDate()));
+        task.insert(QStringLiteral("has_date_range"), hasStartDate || hasDueDate);
         task.insert(QStringLiteral("created_at"), dateTimeToIsoString(todo->createdAt()));
         task.insert(QStringLiteral("updated_at"), dateTimeToIsoString(todo->updatedAt()));
         task.insert(QStringLiteral("completed_at"), dateTimeToIsoString(todo->completedAt()));
@@ -1753,6 +1919,7 @@ bool TodoService::writeTaskSummaryFile(const QString& filePath)
         const bool isCompleted = todo->status() == Todo::TodoStatus::Completed;
         const bool isCancelled = todo->status() == Todo::TodoStatus::Cancelled;
         const bool isOpen = !isCompleted && !isCancelled;
+        const bool hasStartDate = todo->startDate().isValid() && !todo->startDate().isNull();
         const bool hasDueDate = todo->dueDate().isValid() && !todo->dueDate().isNull();
         const QDateTime dueDate = hasDueDate ? todo->dueDate().toLocalTime() : QDateTime();
         const bool isDueToday = isOpen && hasDueDate && dueDate.date() == today;
@@ -1778,7 +1945,7 @@ bool TodoService::writeTaskSummaryFile(const QString& filePath)
             break;
         }
 
-        if (hasDueDate) {
+        if (hasStartDate || hasDueDate) {
             ++scheduledCount;
         }
         if (isDueToday) {

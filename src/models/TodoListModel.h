@@ -14,6 +14,7 @@ public:
         PriorityRole,
         CategoryIdRole,
         StatusRole,
+        StartDateRole,
         DueDateRole,
         CreatedAtRole,
         UpdatedAtRole,

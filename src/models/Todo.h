@@ -39,6 +39,7 @@ public:
     Q_PROPERTY(Priority priority READ priority WRITE setPriority NOTIFY priorityChanged)
     Q_PROPERTY(QUuid categoryId READ categoryId WRITE setCategoryId NOTIFY categoryIdChanged)
     Q_PROPERTY(TodoStatus status READ status WRITE setStatus NOTIFY statusChanged)
+    Q_PROPERTY(QDateTime startDate READ startDate WRITE setStartDate NOTIFY startDateChanged)
     Q_PROPERTY(QDateTime dueDate READ dueDate WRITE setDueDate NOTIFY dueDateChanged)
     Q_PROPERTY(QDateTime createdAt READ createdAt WRITE setCreatedAt NOTIFY createdAtChanged)
     Q_PROPERTY(QDateTime updatedAt READ updatedAt WRITE setUpdatedAt NOTIFY updatedAtChanged)
@@ -66,6 +67,9 @@ public:
 
     TodoStatus status() const;
     void setStatus(TodoStatus status);
+
+    QDateTime startDate() const;
+    void setStartDate(const QDateTime& startDate);
 
     QDateTime dueDate() const;
     void setDueDate(const QDateTime& dueDate);
@@ -101,6 +105,7 @@ signals:
     void priorityChanged();
     void categoryIdChanged();
     void statusChanged();
+    void startDateChanged();
     void dueDateChanged();
     void createdAtChanged();
     void updatedAtChanged();
@@ -116,6 +121,7 @@ private:
     Priority m_priority;
     QUuid m_categoryId;
     TodoStatus m_status;
+    QDateTime m_startDate;
     QDateTime m_dueDate;
     QDateTime m_createdAt;
     QDateTime m_updatedAt;

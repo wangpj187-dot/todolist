@@ -21,28 +21,53 @@ Dialog {
     padding: 0
     closePolicy: Popup.CloseOnEscape
 
-    property var selectedDate: new Date()
-    property int calendarMonth: selectedDate.getMonth()
-    property int calendarYear: selectedDate.getFullYear()
+    property var selectedStartDate: new Date()
+    property var selectedEndDate: new Date()
+    property string calendarTarget: "start"
+    property int calendarMonth: selectedStartDate.getMonth()
+    property int calendarYear: selectedStartDate.getFullYear()
     property var dateItems: []
     readonly property string flagTag: "旗标"
 
     signal editRequested(var item)
 
     function openForDate(date) {
-        setSelectedDate(date instanceof Date && !isNaN(date.getTime()) ? date : new Date())
+        const day = normalizeDate(date)
+        setSelectedRange(day, day)
         open()
     }
 
-    function setSelectedDate(date) {
-        selectedDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0)
-        calendarMonth = selectedDate.getMonth()
-        calendarYear = selectedDate.getFullYear()
+    function isValidDate(value) {
+        return value instanceof Date && !isNaN(value.getTime())
+    }
+
+    function normalizeDate(value) {
+        const date = isValidDate(value) ? value : new Date()
+        return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0)
+    }
+
+    function setCalendarDate(date) {
+        const normalized = normalizeDate(date)
+        calendarMonth = normalized.getMonth()
+        calendarYear = normalized.getFullYear()
+    }
+
+    function setSelectedRange(startDate, endDate) {
+        let start = normalizeDate(startDate)
+        let end = normalizeDate(endDate)
+        if (end < start) {
+            const tmp = start
+            start = end
+            end = tmp
+        }
+        selectedStartDate = start
+        selectedEndDate = end
+        setCalendarDate(calendarTarget === "end" ? selectedEndDate : selectedStartDate)
         refresh()
     }
 
     function refresh() {
-        dateItems = todoService.getTodosForDateFromQml(selectedDate)
+        dateItems = todoService.getTodosForDateRangeFromQml(selectedStartDate, selectedEndDate)
     }
 
     function pad2(value) {
@@ -51,6 +76,14 @@ Dialog {
 
     function formatDate(date) {
         return date.getFullYear() + "-" + pad2(date.getMonth() + 1) + "-" + pad2(date.getDate())
+    }
+
+    function formatDisplayDate(date) {
+        return date.getFullYear() + "." + pad2(date.getMonth() + 1) + "." + pad2(date.getDate())
+    }
+
+    function formatRange() {
+        return formatDisplayDate(selectedStartDate) + "-" + formatDisplayDate(selectedEndDate)
     }
 
     function formatDateTime(value) {
@@ -63,6 +96,34 @@ Dialog {
         const next = new Date(calendarYear, calendarMonth + delta, 1)
         calendarYear = next.getFullYear()
         calendarMonth = next.getMonth()
+    }
+
+    function selectedDayCount() {
+        const msPerDay = 24 * 60 * 60 * 1000
+        return Math.max(1, Math.round((selectedEndDate.getTime() - selectedStartDate.getTime()) / msPerDay) + 1)
+    }
+
+    function shiftSelectedRange(direction) {
+        const days = selectedDayCount() * direction
+        const start = new Date(selectedStartDate)
+        const end = new Date(selectedEndDate)
+        start.setDate(start.getDate() + days)
+        end.setDate(end.getDate() + days)
+        setSelectedRange(start, end)
+    }
+
+    function openCalendar(target) {
+        calendarTarget = target
+        setCalendarDate(target === "end" ? selectedEndDate : selectedStartDate)
+        calendarPopup.open()
+    }
+
+    function setCalendarTargetDate(value) {
+        const date = normalizeDate(value)
+        if (calendarTarget === "start")
+            setSelectedRange(date, selectedEndDate)
+        else
+            setSelectedRange(selectedStartDate, date)
     }
 
     function countByStatus(status) {
@@ -183,7 +244,7 @@ Dialog {
                     }
 
                     Text {
-                        text: formatDate(root.selectedDate) + " · " + root.dateItems.length + " 项"
+                        text: root.formatRange() + " · " + root.dateItems.length + " 项"
                         color: "#6B7280"
                         font.pixelSize: 12
                         elide: Text.ElideRight
@@ -227,31 +288,61 @@ Dialog {
                     Layout.preferredWidth: 34
                     Layout.preferredHeight: 34
                     text: "<"
-                    onClicked: {
-                        const previous = new Date(root.selectedDate)
-                        previous.setDate(previous.getDate() - 1)
-                        root.setSelectedDate(previous)
-                    }
+                    onClicked: root.shiftSelectedRange(-1)
                 }
 
                 Button {
-                    id: dateButton
+                    id: rangeStartButton
                     Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                     Layout.preferredHeight: 34
-                    text: root.formatDate(root.selectedDate)
-                    onClicked: calendarPopup.open()
+                    text: root.formatDisplayDate(root.selectedStartDate)
+                    onClicked: root.openCalendar("start")
                     background: Rectangle {
                         radius: 9
-                        color: calendarPopup.opened ? "#E5F1FF" : "#FFFFFF"
-                        border.color: calendarPopup.opened ? "#007AFF" : "#DADAE0"
+                        color: calendarPopup.opened && root.calendarTarget === "start" ? "#E5F1FF" : "#FFFFFF"
+                        border.color: calendarPopup.opened && root.calendarTarget === "start" ? "#007AFF" : "#DADAE0"
                         border.width: 1
                     }
                     contentItem: Text {
-                        text: dateButton.text
+                        text: rangeStartButton.text
                         color: "#111827"
                         font.pixelSize: 13
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideRight
+                    }
+                }
+
+                Text {
+                    Layout.preferredWidth: 14
+                    text: "-"
+                    color: "#6B7280"
+                    font.pixelSize: 14
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                Button {
+                    id: rangeEndButton
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    Layout.preferredHeight: 34
+                    text: root.formatDisplayDate(root.selectedEndDate)
+                    onClicked: root.openCalendar("end")
+                    background: Rectangle {
+                        radius: 9
+                        color: calendarPopup.opened && root.calendarTarget === "end" ? "#E5F1FF" : "#FFFFFF"
+                        border.color: calendarPopup.opened && root.calendarTarget === "end" ? "#007AFF" : "#DADAE0"
+                        border.width: 1
+                    }
+                    contentItem: Text {
+                        text: rangeEndButton.text
+                        color: "#111827"
+                        font.pixelSize: 13
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideRight
                     }
                 }
 
@@ -260,11 +351,7 @@ Dialog {
                     Layout.preferredWidth: 34
                     Layout.preferredHeight: 34
                     text: ">"
-                    onClicked: {
-                        const next = new Date(root.selectedDate)
-                        next.setDate(next.getDate() + 1)
-                        root.setSelectedDate(next)
-                    }
+                    onClicked: root.shiftSelectedRange(1)
                 }
             }
 
@@ -445,7 +532,7 @@ Dialog {
                 Text {
                     anchors.centerIn: parent
                     visible: dateList.count === 0
-                    text: "这一天暂无相关任务"
+                    text: root.selectedDayCount() === 1 ? "这一天暂无相关任务" : "这段时间暂无相关任务"
                     color: "#9CA3AF"
                     font.pixelSize: 14
                 }
@@ -456,8 +543,9 @@ Dialog {
     Popup {
         id: calendarPopup
         parent: root.contentItem
-        readonly property real preferredX: dateButton.mapToItem(root.contentItem, 0, 0).x
-        readonly property real preferredY: dateButton.mapToItem(root.contentItem, 0, dateButton.height + 6).y
+        readonly property var anchorButton: root.calendarTarget === "end" ? rangeEndButton : rangeStartButton
+        readonly property real preferredX: anchorButton.mapToItem(root.contentItem, 0, 0).x
+        readonly property real preferredY: anchorButton.mapToItem(root.contentItem, 0, anchorButton.height + 6).y
         x: Math.max(12, Math.min(root.width - width - 12, preferredX))
         y: Math.max(12, Math.min(root.height - implicitHeight - 12, preferredY))
         width: Math.max(216, Math.min(316, root.width - 24))
@@ -536,14 +624,16 @@ Dialog {
                     radius: 6
                     opacity: model.month === monthGrid.month ? 1 : 0.35
 
-                    readonly property bool isSelected: model.day === root.selectedDate.getDate()
-                                                       && model.month === root.selectedDate.getMonth()
-                                                       && monthGrid.year === root.selectedDate.getFullYear()
+                    readonly property var cellDate: new Date(monthGrid.year, model.month, model.day, 0, 0, 0)
+                    readonly property bool isStart: cellDate.getTime() === root.selectedStartDate.getTime()
+                    readonly property bool isEnd: cellDate.getTime() === root.selectedEndDate.getTime()
+                    readonly property bool isSelected: isStart || isEnd
+                    readonly property bool isInRange: cellDate >= root.selectedStartDate && cellDate <= root.selectedEndDate
                     readonly property bool isToday: model.day === new Date().getDate()
                                                     && model.month === new Date().getMonth()
                                                     && monthGrid.year === new Date().getFullYear()
 
-                    color: isSelected ? "#007AFF" : dayMouse.containsMouse ? "#EFF6FF" : "transparent"
+                    color: isSelected ? "#007AFF" : isInRange ? "#E5F1FF" : dayMouse.containsMouse ? "#EFF6FF" : "transparent"
                     border.color: !isSelected && isToday ? "#93C5FD" : "transparent"
                     border.width: !isSelected && isToday ? 1 : 0
 
@@ -560,7 +650,7 @@ Dialog {
                         anchors.fill: parent
                         hoverEnabled: true
                         onClicked: {
-                            root.setSelectedDate(new Date(monthGrid.year, model.month, model.day, 0, 0, 0))
+                            root.setCalendarTargetDate(new Date(monthGrid.year, model.month, model.day, 0, 0, 0))
                             calendarPopup.close()
                         }
                     }
@@ -576,7 +666,7 @@ Dialog {
                     Layout.preferredHeight: 32
                     text: "今天"
                     onClicked: {
-                        root.setSelectedDate(new Date())
+                        root.setCalendarTargetDate(new Date())
                         calendarPopup.close()
                     }
                 }
@@ -588,7 +678,7 @@ Dialog {
                     onClicked: {
                         const tomorrow = new Date()
                         tomorrow.setDate(tomorrow.getDate() + 1)
-                        root.setSelectedDate(tomorrow)
+                        root.setCalendarTargetDate(tomorrow)
                         calendarPopup.close()
                     }
                 }

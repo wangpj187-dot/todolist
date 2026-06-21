@@ -247,8 +247,8 @@ void Config::resetToDefaults()
     m_reminderAdvanceMinutes = 60;
     m_windowX = 0;
     m_windowY = 0;
-    m_windowWidth = 400;
-    m_windowHeight = 600;
+    m_windowWidth = 490;
+    m_windowHeight = 340;
     m_createdAt = QDateTime::currentDateTimeUtc();
     m_updatedAt = QDateTime::currentDateTimeUtc();
 }

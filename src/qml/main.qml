@@ -10,7 +10,7 @@ ApplicationWindow {
     width: configService.windowWidth
     height: configService.windowHeight
     minimumWidth: 300
-    minimumHeight: 400
+    minimumHeight: 320
     title: "Todolist"
     color: "transparent"
     visible: true
@@ -23,6 +23,16 @@ ApplicationWindow {
     // The app is quit/hidden via the system tray menu.
     flags: Qt.Window | Qt.FramelessWindowHint
 
+    Behavior on width {
+        enabled: root.windowSizeAnimationActive
+        NumberAnimation { duration: root.windowSizeAnimationDuration; easing.type: Easing.OutCubic }
+    }
+
+    Behavior on height {
+        enabled: root.windowSizeAnimationActive
+        NumberAnimation { duration: root.windowSizeAnimationDuration; easing.type: Easing.OutCubic }
+    }
+
     // Responsive breakpoint: when the widget is narrow, collapse controls
     // (wrap filters to a new line, shrink button labels) like common web apps.
     readonly property bool compact: width < 560
@@ -31,8 +41,19 @@ ApplicationWindow {
     property var availableTags: []
     property var todayCompletedTodos: []
     property bool completedDrawerOpen: false
+    property bool calendarViewVisible: false
+    property var listWindowGeometry: ({ "valid": false, "x": 0, "y": 0, "width": 0, "height": 0 })
+    property bool windowSizeAnimationActive: false
+    property string windowSizeAnimationMode: ""
     property var todayDate: new Date()
     property string summaryNotice: ""
+    readonly property int listDefaultWidth: 490
+    readonly property int listDefaultHeight: 340
+    readonly property int listMinimumWidth: 300
+    readonly property int listMinimumHeight: 320
+    readonly property int calendarMinimumWidth: 980
+    readonly property int calendarMinimumHeight: 680
+    readonly property int windowSizeAnimationDuration: 260
     readonly property var smartLists: [
         { "label": "今天", "accent": "#007AFF" },
         { "label": "已计划", "accent": "#5856D6" },
@@ -147,6 +168,97 @@ ApplicationWindow {
         restartDailyUiRefreshTimer()
     }
 
+    function dateWithDayOffset(offset) {
+        const date = new Date()
+        date.setHours(0, 0, 0, 0)
+        date.setDate(date.getDate() + offset)
+        return date
+    }
+
+    function openTomorrowTodoForm() {
+        functionPopup.close()
+        todoForm.openForCreateOnDate(dateWithDayOffset(1))
+    }
+
+    function persistWindowSize() {
+        if (root.visible && root.width >= root.minimumWidth)
+            configService.setWindowWidth(Math.round(root.width))
+        if (root.visible && root.height >= root.minimumHeight)
+            configService.setWindowHeight(Math.round(root.height))
+    }
+
+    function beginWindowSizeAnimation(mode) {
+        windowSizeAnimationMode = mode
+        windowSizeAnimationActive = true
+        windowSizeAnimationTimer.restart()
+    }
+
+    function finishWindowSizeAnimation() {
+        const mode = windowSizeAnimationMode
+        windowSizeAnimationActive = false
+
+        if (mode === "calendar" && calendarViewVisible) {
+            minimumWidth = calendarMinimumWidth
+            minimumHeight = calendarMinimumHeight
+            width = Math.max(root.width, calendarMinimumWidth)
+            height = Math.max(root.height, calendarMinimumHeight)
+        } else {
+            minimumWidth = listMinimumWidth
+            minimumHeight = listMinimumHeight
+        }
+
+        persistWindowSize()
+        windowSizeAnimationMode = ""
+    }
+
+    function enterCalendarView() {
+        if (calendarViewVisible)
+            return
+
+        listWindowGeometry = {
+            "valid": true,
+            "x": root.x,
+            "y": root.y,
+            "width": root.width,
+            "height": root.height
+        }
+        completedDrawerOpen = false
+        minimumWidth = listMinimumWidth
+        minimumHeight = listMinimumHeight
+        beginWindowSizeAnimation("calendar")
+        calendarViewVisible = true
+        width = Math.max(root.width, calendarMinimumWidth)
+        height = Math.max(root.height, calendarMinimumHeight)
+    }
+
+    function leaveCalendarView() {
+        if (!calendarViewVisible)
+            return
+
+        calendarViewVisible = false
+        minimumWidth = listMinimumWidth
+        minimumHeight = listMinimumHeight
+        beginWindowSizeAnimation("list")
+
+        if (listWindowGeometry.valid) {
+            x = listWindowGeometry.x
+            y = listWindowGeometry.y
+            width = Math.max(listMinimumWidth, listWindowGeometry.width)
+            height = Math.max(listMinimumHeight, listWindowGeometry.height)
+            listWindowGeometry = { "valid": false, "x": 0, "y": 0, "width": 0, "height": 0 }
+        } else {
+            width = listDefaultWidth
+            height = listDefaultHeight
+        }
+    }
+
+    function toggleCalendarView() {
+        if (calendarViewVisible)
+            leaveCalendarView()
+        else
+            enterCalendarView()
+    }
+
     // -------------------------------------------------------------------------
     // Window position/size persistence
     // -------------------------------------------------------------------------
@@ -156,6 +268,11 @@ ApplicationWindow {
         if (configService.windowX !== 0 || configService.windowY !== 0) {
             root.x = configService.windowX
             root.y = configService.windowY
+        }
+        if (configService.windowWidth === 400 && configService.windowHeight === 600) {
+            root.width = listDefaultWidth
+            root.height = listDefaultHeight
+            persistWindowSize()
         }
         root.refreshTagChoices()
         root.applySmartList(0)
@@ -177,14 +294,19 @@ ApplicationWindow {
 
     // Save size when window is resized
     onWidthChanged: {
-        if (root.visible && root.width >= root.minimumWidth) {
-            configService.setWindowWidth(root.width)
-        }
+        if (!root.windowSizeAnimationActive)
+            persistWindowSize()
     }
     onHeightChanged: {
-        if (root.visible && root.height >= root.minimumHeight) {
-            configService.setWindowHeight(root.height)
-        }
+        if (!root.windowSizeAnimationActive)
+            persistWindowSize()
+    }
+
+    Timer {
+        id: windowSizeAnimationTimer
+        interval: root.windowSizeAnimationDuration + 40
+        repeat: false
+        onTriggered: root.finishWindowSizeAnimation()
     }
 
     // Auto-save config periodically when changes occur
@@ -275,19 +397,21 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     spacing: 1
 
-                    Text {
-                        text: "提醒事项"
-                        font.pixelSize: root.compact ? 19 : 23
-                        font.weight: Font.DemiBold
-                        color: "#111827"
+	                    Text {
+	                        text: root.calendarViewVisible ? "日历" : "提醒事项"
+	                        font.pixelSize: root.compact ? 19 : 23
+	                        font.weight: Font.DemiBold
+	                        color: "#111827"
                         elide: Text.ElideRight
                         Layout.fillWidth: true
                     }
 
-                    Text {
-                        text: root.formatShortDate(root.todayDate) + " · " + todoListView.count + " 项"
-                        font.pixelSize: 12
-                        color: "#8E8E93"
+	                    Text {
+	                        text: root.calendarViewVisible
+	                              ? calendarTaskView.calendarTitle + " · " + calendarTaskView.selectedItems.length + " 项"
+	                              : root.formatShortDate(root.todayDate) + " · " + todoListView.count + " 项"
+	                        font.pixelSize: 12
+	                        color: "#8E8E93"
                         visible: !root.compact
                     }
                 }
@@ -341,18 +465,52 @@ ApplicationWindow {
                 }
 
                 Button {
+                    id: tomorrowButton
+                    text: "明日"
+                    font.pixelSize: 13
+                    Layout.preferredWidth: root.compact ? 42 : 50
+                    Layout.preferredHeight: 34
+                    ToolTip.visible: hovered
+                    ToolTip.text: "添加明天的待办"
+                    onClicked: root.openTomorrowTodoForm()
+                    background: Rectangle {
+                        radius: 17
+                        color: tomorrowButton.down
+                               ? "#D1E7FF"
+                               : tomorrowButton.hovered ? "#E5F1FF" : "#FFFFFF"
+                        border.color: "#DADAE0"
+                        border.width: 1
+                        scale: tomorrowButton.down ? 0.96 : 1.0
+                        Behavior on color { ColorAnimation { duration: 150 } }
+                        Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                    }
+                    contentItem: Text {
+                        text: tomorrowButton.text
+                        color: tomorrowButton.hovered || tomorrowButton.down ? "#007AFF" : "#374151"
+                        font: tomorrowButton.font
+                        verticalAlignment: Text.AlignVCenter
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
+                    }
+                }
+
+                Button {
                     id: dateHeaderButton
                     Layout.preferredWidth: 34
                     Layout.preferredHeight: 34
                     ToolTip.visible: hovered
-                    ToolTip.text: "按日期查看"
-                    background: Rectangle {
-                        radius: 17
-                        color: dateHeaderButton.down
-                               ? "#D1E7FF"
-                               : dateHeaderButton.hovered ? "#E5F1FF" : "transparent"
-                        Behavior on color { ColorAnimation { duration: 150 } }
-                    }
+                    ToolTip.text: root.calendarViewVisible ? "返回列表" : "按日期查看"
+	                    background: Rectangle {
+	                        radius: 17
+	                        color: root.calendarViewVisible
+	                               ? "#D1E7FF"
+	                               : dateHeaderButton.down
+	                               ? "#D1E7FF"
+	                               : dateHeaderButton.hovered ? "#E5F1FF" : "transparent"
+	                        border.color: root.calendarViewVisible ? "#007AFF" : "transparent"
+	                        border.width: root.calendarViewVisible ? 1 : 0
+	                        Behavior on color { ColorAnimation { duration: 150 } }
+	                    }
                     contentItem: Canvas {
                         id: dateHeaderIcon
                         implicitWidth: 18
@@ -406,75 +564,126 @@ ApplicationWindow {
                     }
                     onDownChanged: dateHeaderIcon.requestPaint()
                     onHoveredChanged: dateHeaderIcon.requestPaint()
-                    onClicked: {
-                        functionPopup.close()
-                        dateReviewDialog.openForDate(new Date())
-                    }
-                }
-            }
+	                    onClicked: {
+	                        functionPopup.close()
+	                        root.toggleCalendarView()
+	                    }
+	                }
+	            }
 
         // ---------------------------------------------------------------------
         // Todo List View
         // ---------------------------------------------------------------------
-        ListView {
-            id: todoListView
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            Layout.leftMargin: 16
-            Layout.rightMargin: 16
-            Layout.bottomMargin: 0
-            model: todoService.todos
-            delegate: TodoItem {
-                onEditRequested: function(todoId, title, description, priority, categoryId, dueDate, status, tags) {
-                    todoForm.openForEdit(todoId, title, description, priority, categoryId, dueDate, status, tags)
-                }
-            }
-            spacing: 8
-            clip: true
-            ScrollBar.vertical: ScrollBar {
-                policy: ScrollBar.AsNeeded
-            }
-
-            // Smooth list transitions for add / remove / reorder
-            add: Transition {
-                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 430; easing.type: Easing.OutCubic }
-                NumberAnimation { property: "scale"; from: 0.18; to: 1.0; duration: 560; easing.type: Easing.OutBack; easing.overshoot: 1.35 }
-            }
-            remove: Transition {
-                NumberAnimation { property: "opacity"; to: 0; duration: 320; easing.type: Easing.InCubic }
-                NumberAnimation { property: "scale"; to: 0.18; duration: 360; easing.type: Easing.InBack; easing.overshoot: 1.25 }
-            }
-            displaced: Transition {
-                NumberAnimation { properties: "x,y"; duration: 360; easing.type: Easing.OutCubic }
-            }
-
-            // Empty State (overlay on list view)
-            Column {
-                id: emptyState
-                visible: todoListView.count === 0
-                anchors.centerIn: parent
-                spacing: 8
-                z: 1
-
-                Text {
-                    text: "今天暂无待办事项"
-                    font.pixelSize: 16
-                    color: "#9CA3AF"
-                    anchors.horizontalCenter: parent.horizontalCenter
-                }
-
-                Text {
-                    text: "点击右上角 + 新建今天的事项"
-                    font.pixelSize: 14
-                    color: "#D1D5DB"
-                    anchors.horizontalCenter: parent.horizontalCenter
-                }
-            }
-        }
-
-            Rectangle {
+            Item {
+                id: viewSwitcher
                 Layout.fillWidth: true
-                Layout.preferredHeight: 44
+                Layout.fillHeight: true
+                clip: true
+
+                ListView {
+                    id: todoListView
+                    anchors.fill: parent
+                    anchors.leftMargin: 16
+                    anchors.rightMargin: 16
+                    enabled: !root.calendarViewVisible
+                    visible: !root.calendarViewVisible || opacity > 0.01
+                    opacity: root.calendarViewVisible ? 0 : 1
+                    model: todoService.todos
+                    delegate: TodoItem {
+                        onEditRequested: function(todoId, title, description, priority, categoryId, dueDate, status, tags, startDate) {
+                            todoForm.openForEdit(todoId, title, description, priority, categoryId, dueDate, status, tags, startDate)
+                        }
+                    }
+                    spacing: 8
+                    clip: true
+                    transform: Translate {
+                        id: todoListSlide
+                        x: root.calendarViewVisible ? -22 : 0
+                        Behavior on x {
+                            NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+                        }
+                    }
+                    Behavior on opacity {
+                        NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                    }
+                    ScrollBar.vertical: ScrollBar {
+                        policy: ScrollBar.AsNeeded
+                    }
+
+                    // Smooth list transitions for add / remove / reorder
+                    add: Transition {
+                        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 430; easing.type: Easing.OutCubic }
+                        NumberAnimation { property: "scale"; from: 0.18; to: 1.0; duration: 560; easing.type: Easing.OutBack; easing.overshoot: 1.35 }
+                    }
+                    remove: Transition {
+                        NumberAnimation { property: "opacity"; to: 0; duration: 320; easing.type: Easing.InCubic }
+                        NumberAnimation { property: "scale"; to: 0.18; duration: 360; easing.type: Easing.InBack; easing.overshoot: 1.25 }
+                    }
+                    displaced: Transition {
+                        NumberAnimation { properties: "x,y"; duration: 360; easing.type: Easing.OutCubic }
+                    }
+
+                    // Empty State (overlay on list view)
+                    Column {
+                        id: emptyState
+                        visible: todoListView.count === 0
+                        anchors.centerIn: parent
+                        spacing: 8
+                        z: 1
+
+                        Text {
+                            text: "今天暂无待办事项"
+                            font.pixelSize: 16
+                            color: "#9CA3AF"
+                            anchors.horizontalCenter: parent.horizontalCenter
+                        }
+
+                        Text {
+                            text: "点击右上角 + 新建今天的事项"
+                            font.pixelSize: 14
+                            color: "#D1D5DB"
+                            anchors.horizontalCenter: parent.horizontalCenter
+                        }
+                    }
+                }
+
+                CalendarTaskView {
+                    id: calendarTaskView
+                    anchors.fill: parent
+                    enabled: root.calendarViewVisible
+                    visible: root.calendarViewVisible || opacity > 0.01
+                    opacity: root.calendarViewVisible ? 1 : 0
+                    transform: Translate {
+                        id: calendarViewSlide
+                        x: root.calendarViewVisible ? 0 : 22
+                        Behavior on x {
+                            NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+                        }
+                    }
+                    Behavior on opacity {
+                        NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                    }
+                    onCreateRequested: function(date) {
+                        todoForm.openForCreateOnDate(date)
+                    }
+                    onEditRequested: function(item) {
+                        todoForm.openForEdit(item.id,
+                                             item.title,
+                                             item.description,
+                                             item.priority,
+                                             item.categoryId,
+                                             item.dueDate,
+                                             item.status,
+                                             item.tags,
+                                             item.startDate)
+                    }
+                }
+            }
+
+	            Rectangle {
+                    visible: !root.calendarViewVisible
+	                Layout.fillWidth: true
+	                Layout.preferredHeight: 44
                 color: "transparent"
 
                 Button {
@@ -510,13 +719,13 @@ ApplicationWindow {
             }
         }
 
-        Rectangle {
-            id: completedDrawer
+	        Rectangle {
+	            id: completedDrawer
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            height: root.completedDrawerOpen
-                    ? Math.min(root.height * 0.55, Math.max(190, root.todayCompletedTodos.length * 66 + 86))
+	            height: !root.calendarViewVisible && root.completedDrawerOpen
+	                    ? Math.min(root.height * 0.55, Math.max(190, root.todayCompletedTodos.length * 66 + 86))
                     : 0
             z: 10
             visible: height > 1
@@ -662,9 +871,10 @@ ApplicationWindow {
                                                          modelData.description,
                                                          modelData.priority,
                                                          modelData.categoryId,
-                                                         modelData.dueDate,
-                                                         modelData.status,
-                                                         modelData.tags)
+	                                                         modelData.dueDate,
+	                                                         modelData.status,
+	                                                         modelData.tags,
+	                                                         modelData.startDate)
                                 }
                                 background: Rectangle {
                                     radius: 7
@@ -1129,9 +1339,10 @@ ApplicationWindow {
                                  item.description,
                                  item.priority,
                                  item.categoryId,
-                                 item.dueDate,
-                                 item.status,
-                                 item.tags)
+	                                 item.dueDate,
+	                                 item.status,
+	                                 item.tags,
+	                                 item.startDate)
         }
     }
 
@@ -1172,9 +1383,9 @@ ApplicationWindow {
         }
 
         onAccepted: {
-            if (quickTitleField.text.trimmed().length > 0) {
+            if (quickTitleField.text.trim().length > 0) {
                 todoService.createTodoFromQml(
-                    quickTitleField.text.trimmed(),
+                    quickTitleField.text.trim(),
                     "",
                     quickPriorityCombo.currentIndex + 1, // Priority enum starts at 1
                     "", // No category

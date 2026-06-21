@@ -85,6 +85,14 @@ public:
                                                 const QVariant& dueDate,
                                                 const QVariant& tags);
 
+    Q_INVOKABLE QUuid createTodoFromQmlWithTagsAndRange(const QString& title,
+                                                        const QString& description,
+                                                        int priority,
+                                                        const QVariant& categoryId,
+                                                        const QVariant& startDate,
+                                                        const QVariant& dueDate,
+                                                        const QVariant& tags);
+
     Q_INVOKABLE bool updateTodoFromQmlWithTags(const QVariant& todoId,
                                                const QString& title,
                                                const QString& description,
@@ -94,11 +102,23 @@ public:
                                                int status,
                                                const QVariant& tags);
 
+    Q_INVOKABLE bool updateTodoFromQmlWithTagsAndRange(const QVariant& todoId,
+                                                       const QString& title,
+                                                       const QString& description,
+                                                       int priority,
+                                                       const QVariant& categoryId,
+                                                       const QVariant& startDate,
+                                                       const QVariant& dueDate,
+                                                       int status,
+                                                       const QVariant& tags);
+
     Q_INVOKABLE bool updateTodoTagsFromQml(const QVariant& todoId, const QVariant& tags);
     Q_INVOKABLE bool toggleFlagFromQml(const QVariant& todoId);
     Q_INVOKABLE bool setTodoStatusFromQml(const QVariant& todoId, int status);
     Q_INVOKABLE bool setTodoPriorityFromQml(const QVariant& todoId, int priority);
     Q_INVOKABLE QVariantList getTodosForDateFromQml(const QVariant& date) const;
+    Q_INVOKABLE QVariantList getTodosForDateRangeFromQml(const QVariant& startDate,
+                                                         const QVariant& endDate) const;
 
     Q_INVOKABLE bool deleteTodo(const QUuid& todoId) override;
     Todo* getTodo(const QUuid& todoId) const override;

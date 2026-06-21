@@ -224,6 +224,16 @@ bool DatabaseManager::runMigrations()
         }
     }
 
+    currentVersion = getCurrentSchemaVersion();
+    if (currentVersion < 2) {
+        if (!runMigrationV2()) {
+            throw DatabaseException(
+                DatabaseException::ErrorCode::MigrationError,
+                "Failed to run migration v2"
+            );
+        }
+    }
+
     return true;
 }
 
@@ -282,6 +292,7 @@ bool DatabaseManager::runMigrationV1()
             "    priority INTEGER NOT NULL DEFAULT 2 CHECK (priority BETWEEN 1 AND 4),"
             "    category_id TEXT,"
             "    status INTEGER NOT NULL DEFAULT 1 CHECK (status BETWEEN 1 AND 4),"
+            "    start_date TEXT,"
             "    due_date TEXT,"
             "    created_at TEXT NOT NULL,"
             "    updated_at TEXT NOT NULL,"
@@ -348,8 +359,8 @@ bool DatabaseManager::runMigrationV1()
             "    reminder_advance_minutes INTEGER NOT NULL DEFAULT 60 CHECK (reminder_advance_minutes >= 0),"
             "    window_x INTEGER,"
             "    window_y INTEGER,"
-            "    window_width INTEGER NOT NULL DEFAULT 400,"
-            "    window_height INTEGER NOT NULL DEFAULT 600,"
+            "    window_width INTEGER NOT NULL DEFAULT 490,"
+            "    window_height INTEGER NOT NULL DEFAULT 340,"
             "    created_at TEXT NOT NULL,"
             "    updated_at TEXT NOT NULL"
             ")"
@@ -385,6 +396,7 @@ bool DatabaseManager::runMigrationV1()
         QStringList indexes = {
             "CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status);",
             "CREATE INDEX IF NOT EXISTS idx_todos_priority ON todos(priority);",
+            "CREATE INDEX IF NOT EXISTS idx_todos_start_date ON todos(start_date);",
             "CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos(due_date);",
             "CREATE INDEX IF NOT EXISTS idx_todos_category_id ON todos(category_id);",
             "CREATE INDEX IF NOT EXISTS idx_todos_created_at ON todos(created_at);",
@@ -421,6 +433,73 @@ bool DatabaseManager::runMigrationV1()
                 DatabaseException::ErrorCode::MigrationError,
                 QString("Failed to commit migration transaction: %1")
                     .arg(db.lastError().text())
+            );
+        }
+
+        return true;
+    } catch (const DatabaseException& e) {
+        db.rollback();
+        emit errorOccurred(QString::fromStdString(e.what()));
+        return false;
+    }
+}
+
+bool DatabaseManager::runMigrationV2()
+{
+    QSqlDatabase db = database();
+    QSqlQuery query(db);
+
+    if (!db.transaction()) {
+        emit errorOccurred(QString("Failed to start migration transaction: %1")
+                               .arg(db.lastError().text()));
+        return false;
+    }
+
+    try {
+        bool hasStartDateColumn = false;
+        if (!query.exec("PRAGMA table_info(todos)")) {
+            throw DatabaseException(
+                DatabaseException::ErrorCode::MigrationError,
+                QString("Failed to inspect todos table: %1").arg(query.lastError().text())
+            );
+        }
+
+        while (query.next()) {
+            if (query.value("name").toString() == QLatin1String("start_date")) {
+                hasStartDateColumn = true;
+                break;
+            }
+        }
+
+        if (!hasStartDateColumn) {
+            query.clear();
+            if (!query.exec("ALTER TABLE todos ADD COLUMN start_date TEXT")) {
+                throw DatabaseException(
+                    DatabaseException::ErrorCode::MigrationError,
+                    QString("Failed to add start_date column: %1").arg(query.lastError().text())
+                );
+            }
+        }
+
+        query.clear();
+        if (!query.exec("CREATE INDEX IF NOT EXISTS idx_todos_start_date ON todos(start_date);")) {
+            throw DatabaseException(
+                DatabaseException::ErrorCode::MigrationError,
+                QString("Failed to create start_date index: %1").arg(query.lastError().text())
+            );
+        }
+
+        if (!setSchemaVersion(2, QStringLiteral("add_todo_start_date"))) {
+            throw DatabaseException(
+                DatabaseException::ErrorCode::MigrationError,
+                "Failed to record migration version 2"
+            );
+        }
+
+        if (!db.commit()) {
+            throw DatabaseException(
+                DatabaseException::ErrorCode::TransactionError,
+                QString("Failed to commit migration transaction: %1").arg(db.lastError().text())
             );
         }
 
@@ -474,6 +553,7 @@ Todo* DatabaseManager::createTodoFromQuery(const QSqlQuery& query) const
     }
 
     todo->setStatus(static_cast<Todo::TodoStatus>(query.value("status").toInt()));
+    todo->setStartDate(stringToDateTime(query.value("start_date").toString()));
     todo->setDueDate(stringToDateTime(query.value("due_date").toString()));
     todo->setCreatedAt(stringToDateTime(query.value("created_at").toString()));
     todo->setUpdatedAt(stringToDateTime(query.value("updated_at").toString()));
@@ -533,6 +613,7 @@ bool DatabaseManager::insertTodo(Todo* todo)
         params[":priority"] = static_cast<int>(todo->priority());
         params[":category_id"] = todo->categoryId().isNull() ? QVariant() : todo->categoryId().toString();
         params[":status"] = static_cast<int>(todo->status());
+        params[":start_date"] = todo->startDate().isValid() ? dateTimeToString(todo->startDate()) : QVariant();
         params[":due_date"] = todo->dueDate().isValid() ? dateTimeToString(todo->dueDate()) : QVariant();
         params[":created_at"] = dateTimeToString(todo->createdAt());
         params[":updated_at"] = dateTimeToString(todo->updatedAt());
@@ -542,9 +623,9 @@ bool DatabaseManager::insertTodo(Todo* todo)
 
         if (!prepareAndExec(query,
             "INSERT INTO todos (id, title, description, priority, category_id, status, "
-            "due_date, created_at, updated_at, completed_at, sync_status, sync_hash) "
+            "start_date, due_date, created_at, updated_at, completed_at, sync_status, sync_hash) "
             "VALUES (:id, :title, :description, :priority, :category_id, :status, "
-            ":due_date, :created_at, :updated_at, :completed_at, :sync_status, :sync_hash)",
+            ":start_date, :due_date, :created_at, :updated_at, :completed_at, :sync_status, :sync_hash)",
             params)) {
             throw DatabaseException(DatabaseException::ErrorCode::QueryError, "Failed to insert todo");
         }
@@ -631,6 +712,7 @@ bool DatabaseManager::updateTodo(Todo* todo)
         params[":priority"] = static_cast<int>(todo->priority());
         params[":category_id"] = todo->categoryId().isNull() ? QVariant() : todo->categoryId().toString();
         params[":status"] = static_cast<int>(todo->status());
+        params[":start_date"] = todo->startDate().isValid() ? dateTimeToString(todo->startDate()) : QVariant();
         params[":due_date"] = todo->dueDate().isValid() ? dateTimeToString(todo->dueDate()) : QVariant();
         params[":updated_at"] = dateTimeToString(todo->updatedAt());
         params[":completed_at"] = todo->completedAt().isValid() ? dateTimeToString(todo->completedAt()) : QVariant();
@@ -640,7 +722,7 @@ bool DatabaseManager::updateTodo(Todo* todo)
         if (!prepareAndExec(query,
             "UPDATE todos SET "
             "title = :title, description = :description, priority = :priority, "
-            "category_id = :category_id, status = :status, due_date = :due_date, "
+            "category_id = :category_id, status = :status, start_date = :start_date, due_date = :due_date, "
             "updated_at = :updated_at, completed_at = :completed_at, "
             "sync_status = :sync_status, sync_hash = :sync_hash "
             "WHERE id = :id",
@@ -738,7 +820,7 @@ Todo* DatabaseManager::getTodo(const QUuid& todoId) const
     params[":id"] = todoId.toString();
 
     if (!prepareAndExec(query,
-        "SELECT id, title, description, priority, category_id, status, due_date, "
+        "SELECT id, title, description, priority, category_id, status, start_date, due_date, "
         "created_at, updated_at, completed_at, sync_status, sync_hash "
         "FROM todos WHERE id = :id",
         params)) {
@@ -758,7 +840,7 @@ QList<Todo*> DatabaseManager::getAllTodos() const
     QSqlQuery query(database());
 
     if (!prepareAndExec(query,
-        "SELECT id, title, description, priority, category_id, status, due_date, "
+        "SELECT id, title, description, priority, category_id, status, start_date, due_date, "
         "created_at, updated_at, completed_at, sync_status, sync_hash "
         "FROM todos ORDER BY created_at DESC")) {
         return todos;
@@ -779,7 +861,7 @@ QList<Todo*> DatabaseManager::getTodosByStatus(Todo::TodoStatus status) const
     params[":status"] = static_cast<int>(status);
 
     if (!prepareAndExec(query,
-        "SELECT id, title, description, priority, category_id, status, due_date, "
+        "SELECT id, title, description, priority, category_id, status, start_date, due_date, "
         "created_at, updated_at, completed_at, sync_status, sync_hash "
         "FROM todos WHERE status = :status ORDER BY created_at DESC",
         params)) {
@@ -805,7 +887,7 @@ QList<Todo*> DatabaseManager::getTodosByCategory(const QUuid& categoryId) const
     params[":category_id"] = categoryId.toString();
 
     if (!prepareAndExec(query,
-        "SELECT id, title, description, priority, category_id, status, due_date, "
+        "SELECT id, title, description, priority, category_id, status, start_date, due_date, "
         "created_at, updated_at, completed_at, sync_status, sync_hash "
         "FROM todos WHERE category_id = :category_id ORDER BY created_at DESC",
         params)) {
@@ -831,7 +913,7 @@ QList<Todo*> DatabaseManager::getTodosDueBefore(const QDateTime& dateTime) const
     params[":due_date"] = dateTimeToString(dateTime);
 
     if (!prepareAndExec(query,
-        "SELECT id, title, description, priority, category_id, status, due_date, "
+        "SELECT id, title, description, priority, category_id, status, start_date, due_date, "
         "created_at, updated_at, completed_at, sync_status, sync_hash "
         "FROM todos WHERE due_date IS NOT NULL AND due_date <= :due_date "
         "AND status IN (1, 2) ORDER BY due_date ASC",
@@ -852,7 +934,7 @@ QList<Todo*> DatabaseManager::getTodosWithPendingSync() const
     QSqlQuery query(database());
 
     if (!prepareAndExec(query,
-        "SELECT id, title, description, priority, category_id, status, due_date, "
+        "SELECT id, title, description, priority, category_id, status, start_date, due_date, "
         "created_at, updated_at, completed_at, sync_status, sync_hash "
         "FROM todos WHERE sync_status != 1 ORDER BY updated_at DESC")) {
         return todos;

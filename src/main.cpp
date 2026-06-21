@@ -4,6 +4,7 @@
 #include <QQuickStyle>
 #include <QDir>
 #include <QDebug>
+#include <QIcon>
 
 // Models
 #include "models/Todo.h"
@@ -45,6 +46,7 @@ int main(int argc, char *argv[])
     QApplication::setApplicationName("TodoApp");
     QApplication::setOrganizationName("TodoApp");
     QApplication::setApplicationVersion("1.0.0");
+    QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/app.png")));
 
     // -------------------------------------------------------------------------
     // Step 1: Initialize Data Access Layer

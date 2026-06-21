@@ -110,6 +110,15 @@ list(APPEND SOURCES
 # Create executable
 add_executable(Todolist ${SOURCES})
 
+if(APPLE)
+    set(TODOLIST_APP_ICON_MACOS "${CMAKE_SOURCE_DIR}/assets/icons/app.icns")
+    set_source_files_properties(${TODOLIST_APP_ICON_MACOS}
+        PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+    target_sources(Todolist PRIVATE ${TODOLIST_APP_ICON_MACOS})
+    set_target_properties(Todolist PROPERTIES
+        MACOSX_BUNDLE_ICON_FILE "app.icns")
+endif()
+
 # Set Qt QML import path
 set(QML_IMPORT_PATH "${CMAKE_SOURCE_DIR}/src/qml" CACHE STRING "Qt QML import path")
 

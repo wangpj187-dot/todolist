@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="160" y1="120" x2="864" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#54C7FF"/>
+      <stop offset="0.55" stop-color="#147DFF"/>
+      <stop offset="1" stop-color="#0B4FD8"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="300" y1="190" x2="742" y2="824" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EAF4FF"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="34" stdDeviation="34" flood-color="#073B8E" flood-opacity="0.35"/>
+    </filter>
+    <filter id="warmGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect x="64" y="64" width="896" height="896" rx="212" fill="url(#bg)"/>
+  <path d="M193 235C258 145 371 103 516 106c169 4 298 76 367 200-70-72-161-104-274-99-175 8-314 88-416 28Z" fill="#8FE0FF" opacity="0.32"/>
+  <path d="M138 704c118 139 265 206 442 202 141-3 252-46 333-129-46 92-122 151-229 179H275c-65-30-111-79-137-252Z" fill="#073B8E" opacity="0.16"/>
+
+  <g filter="url(#softShadow)">
+    <rect x="283" y="190" width="474" height="640" rx="74" fill="url(#paper)"/>
+    <path d="M354 190h287c64 0 116 52 116 116v49c-107 16-215 4-324-36-70-26-116-68-137-127 18-1 37-2 58-2Z" fill="#FFFFFF" opacity="0.68"/>
+    <rect x="382" y="278" width="276" height="54" rx="27" fill="#DCEBFF"/>
+  </g>
+
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M385 446l43 43 92-103" stroke="#14B86A" stroke-width="42"/>
+    <path d="M385 586l43 43 92-103" stroke="#14B86A" stroke-width="42"/>
+    <path d="M570 448h94" stroke="#8CA8D5" stroke-width="34"/>
+    <path d="M570 588h94" stroke="#8CA8D5" stroke-width="34"/>
+    <path d="M382 716h282" stroke="#B8CCEA" stroke-width="34"/>
+  </g>
+
+  <g filter="url(#warmGlow)">
+    <path d="M742 186l34 78 78 34-78 34-34 78-34-78-78-34 78-34 34-78Z" fill="#FFD84D"/>
+    <path d="M833 413l19 43 43 19-43 19-19 43-19-43-43-19 43-19 19-43Z" fill="#F8B62D"/>
+  </g>
+</svg>

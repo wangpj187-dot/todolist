@@ -39,6 +39,8 @@ QVariant TodoListModel::data(const QModelIndex& index, int role) const
         return todo->categoryId();
     case StatusRole:
         return static_cast<int>(todo->status());
+    case StartDateRole:
+        return todo->startDate();
     case DueDateRole:
         return todo->dueDate();
     case CreatedAtRole:
@@ -121,6 +123,7 @@ QHash<int, QByteArray> TodoListModel::roleNames() const
     roles[PriorityRole] = "priority";
     roles[CategoryIdRole] = "categoryId";
     roles[StatusRole] = "status";
+    roles[StartDateRole] = "startDate";
     roles[DueDateRole] = "dueDate";
     roles[CreatedAtRole] = "createdAt";
     roles[UpdatedAtRole] = "updatedAt";

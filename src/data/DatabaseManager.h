@@ -110,6 +110,7 @@ private:
     bool openDatabase();
     bool runMigrations();
     bool runMigrationV1();
+    bool runMigrationV2();
     bool applyPerformancePragmas();
     bool createDefaultConfig();
     int getCurrentSchemaVersion() const;
